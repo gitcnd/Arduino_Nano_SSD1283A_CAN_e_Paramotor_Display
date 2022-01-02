@@ -2,15 +2,15 @@
 
 This Arduino (atmega328p) code drives  an SSD1283A LCD screen to displays data from CAN_Bus
 
-![Paramotor_Display](https://chrisdrake.com/img/Paramotor_Display.png)
+![Paramotor_Display](https://chrisdrake.com/img/Paramotor_Display.jpg)
 
 
 # Supported hardware
 
 1. Only these 1.6" "SSD1283" screens:  https://www.aliexpress.com/wholesale?SearchText=SSD1283
    ![SSD2183 LCD Front](https://chrisdrake.com/img/lcd1.jpg) ![SSD2183 LCD Back](https://chrisdrake.com/img/lcd2.jpg)
-2. Any Arduino: https://en.wikipedia.org/wiki/Arduino_Uno  (Only tested on atmega328p chips at 3.3v and 8mhz so far - e.g. Arduino "Pro Mini".
-   ![Arduino Pro Mini 3.3v](https://chrisdrake.com/img/pro_mini.png)
+2. A 5v Arduino Nano: https://en.wikipedia.org/wiki/Arduino_Nano (e.g. atmega328p chips at 5v and 16mhz)
+   ![Arduino Nano_5v](https://chrisdrake.com/img/Arduino_Nano.jpg)
 3. Cheap CAN_Bus sheild
    ![Chinese CAN-BUS Adapter](https://chrisdrake.com/img/chinese_CAN.jpg)
 
