@@ -51,7 +51,7 @@
 
 
 #include <SerialID.h>  // So we know what code and version is running inside our MCUs
-SerialIDset("\n#\tv3.0 " __FILE__ "\t" __DATE__ " " __TIME__);
+SerialIDset("\n#\tv3.3 " __FILE__ "\t" __DATE__ " " __TIME__);
 
 
 #include <mcp_can.h>
@@ -61,7 +61,7 @@ SerialIDset("\n#\tv3.0 " __FILE__ "\t" __DATE__ " " __TIME__);
 unsigned long prevTX = 0;                                        // Variable to store last execution time
 const unsigned int invlTX = 1000;                                // One second interval constant
 byte data[] = {0xAA, 0x55, 0x01, 0x10, 0xFF, 0x12, 0x34, 0x56};  // Generic CAN data to send
-uint8_t can_ok = 0;                                               // Gets set to 1 if the CAN initialized OK
+uint8_t can_ok = 0;                                               // Gets set to 1 if the CAN initialized OK, and 2 when we get CAN data
 
 // CAN RX Variables
 long unsigned int rxId;
@@ -87,6 +87,8 @@ MCP_CAN CAN0(10);                               // Set CS to pin 10
 #define LCD_BACKLIGHT 6
 #define LCD_CD_PIN_A0 8   // This pin controls whether data or control signals are being sent to the screen (bizarre non-SPI idea...)
 #define LCD_RST_PIN 7
+#define AUX_PINA 3
+#define AUX_PINB 4
 
 
 // Wire your 4 screens with CD(A0)=8, SDA=13, SCK=11, RST=8, LED=6, and CS= the below:-
@@ -313,6 +315,19 @@ void tempC2(uint8_t s,int val, uint8_t draw, int x_offset) {
 
 
 
+void signal(uint8_t s,bool has_sig) {
+  sel_screen(1 << s);
+  scrn[s].Set_Text_Size(1);
+  if(has_sig) {//	  1234567890123 = 13 = 78px wide
+    scrn[s].Set_Text_Back_colour(BLACK);
+    scrn[s].Set_Text_colour(RED);
+    scrn[s].Print_String("               ", 20, 57);
+  } else {
+    scrn[s].Set_Text_Back_colour(RED);
+    scrn[s].Set_Text_colour(WHITE);
+    scrn[s].Print_String(" No CAN Signal ", 20, 57);
+  }
+}
 
 
 
@@ -343,6 +358,7 @@ void instrument_check() {
   //show_font(1);  
   tempC(0,88,0,0); // Caller (us here) needs to cache the previous temp numbers
   tempC(0,88,0,130/2);
+  signal(0,false);
 } // instrument_check
 
 
@@ -396,7 +412,14 @@ void demo_screen() {
 
 void setup() 
 {
-  analogWrite(LCD_BACKLIGHT,255); // Turn on the backlight at startup (also inits this pin)  
+  pinMode(LCD_BACKLIGHT,OUTPUT);
+  digitalWrite(LCD_BACKLIGHT,1); // Turn on the backlight, full strength, at startup.
+  // Alternatively - can dim it:- analogWrite(LCD_BACKLIGHT,255); // Turn on the backlight at startup (also inits this pin)  
+
+  // Connect our AUX pins to ground:-
+  pinMode(AUX_PINA,OUTPUT); digitalWrite(AUX_PINA,0);
+  pinMode(AUX_PINB,OUTPUT); digitalWrite(AUX_PINB,0);
+  
   SerialIDshow(115200); // starts Serial.
 
   // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the masks and filters disabled.
@@ -469,55 +492,63 @@ void loop()
   // $c=0;while(1){$c=0 if($c<32); print "$c "; $c+=32; $c-- if($c==128); $c-=256 if($c>255);}
 
 
-  if(!digitalRead(CAN0_INT))                          // If CAN0_INT pin is low, read receive buffer
-  {
+  if(!digitalRead(CAN0_INT))  {                        // If CAN0_INT pin is low, read receive buffer
     CAN0.readMsgBuf(&rxId, &len, rxBuf);              // Read data: len = data length, buf = data byte(s)
-   if ((rxId>0)||(len>0)) {
 
-    if((rxId & 0x80000000) == 0x80000000)             // Determine if ID is standard (11 bits) or extended (29 bits)
-      sprintf(msgString, "Extended ID: 0x%.8lX  DLC: %1d  Data:", (rxId & 0x1FFFFFFF), len);
-    else
-      sprintf(msgString, "Standard ID: 0x%.3lX       DLC: %1d  Data:", rxId, len);
-  
-    Serial.print(msgString);
-    sprintf(buf,"ID:%4X L:%d ", rxId, len);
-    
-  
-    if((rxId & 0x40000000) == 0x40000000){            // Determine if message is a remote request frame.
-      sprintf(msgString, " REMOTE REQUEST FRAME");
-      Serial.print(msgString);
-    } else {
-      for(byte i = 0; i<len; i++){
-        sprintf(msgString, " 0x%.2X", rxBuf[i]);
-        Serial.print(msgString);
-        if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"%2X ", rxBuf[i]);
-        
-      }
-    }
+    if ((rxId>0)||(len>0)) { // we were getting spurious zeros too much...
+      if(can_ok!=2) { can_ok=2; signal(0,true); }
 
-    // Send data to LCD       
-    one[1]=0;
-    for(int i=0;i<strlen(buf);i++) { // Send data to LCD, wrapping as needed
-      //one[0]=" ";    textPrint(0,X,Y,BLACK,BLACK,1,one);     // erase
-      //one[0]=buf[i]; textPrint(0,X,Y,YELLOW,BLACK,1,one); // write char
-
-      scrn[0].Set_Text_colour(BLACK);
-      scrn[0].Set_Text_Back_colour(BLACK);
-      scrn[0].Set_Text_Size(1);
-      one[0]=" "; scrn[0].Print_String(one, X, Y);
-      scrn[0].Set_Text_Back_colour(YELLOW);
-      one[0]=buf[i]; scrn[0].Print_String(one, X, Y);
-      
-      X=X+6;  if(X>=130) { X=0; Y=Y+8; if(Y>=130)Y=0;}  // advance
-    }	  
+     if((rxId & 0x80000000) == 0x80000000) {            // Determine if ID is standard (11 bits) or extended (29 bits)
+       sprintf(msgString, "Extended ID: 0x%.8lX  DLC: %1d  Data:", (rxId & 0x1FFFFFFF), len);
+       sprintf(buf,"EX:%.8lX L:%1d d:", (rxId & 0x1FFFFFFF), len);
+     } else {
+       sprintf(msgString, "Standard ID: 0x%.3lX       DLC: %1d  Data:", rxId, len);
+       sprintf(buf,"ID:%.3lX L:%ld ", rxId, len);
+     }
+   
+     Serial.print(msgString);
+     
+   
+     if((rxId & 0x40000000) == 0x40000000){            // Determine if message is a remote request frame.
+       //sprintf(msgString, " REMOTE REQUEST FRAME");
+       Serial.print("RMT REQ");
+       if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"RMT"); // buf is 50 bytes
+     } else {
+       for(byte i = 0; i<len; i++){
+         sprintf(msgString, " 0x%.2X", rxBuf[i]);				// 0        1         2         3         4         5
+         Serial.print(msgString);						// 12345678901234567890123456789012345678901234567890
+         if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"%.2X ", rxBuf[i]);	// EX:12345678 L:123 d:12 34 56 78 90 12 34 56.
+       }
+     }
 
 
-    Serial.println();
+ 
+     // Send data to LCD
+     #define CAN_SCRN 0
+     sel_screen(1<<CAN_SCRN);
+     scrn[CAN_SCRN].Set_Text_Back_colour(BLACK);
+     scrn[CAN_SCRN].Set_Text_colour(YELLOW);
+     scrn[CAN_SCRN].Set_Text_Size(1);
+     one[1]=0;
+     for(int i=0;i<strlen(buf);i++) { // Send data to LCD, wrapping as needed
+       //one[0]=" ";    textPrint(0,X,Y,BLACK,BLACK,1,one);     // erase
+       //one[0]=buf[i]; textPrint(0,X,Y,YELLOW,BLACK,1,one); // write char
+ 
+       //scrn[CAN_SCRN].Set_Text_colour(BLACK);
+       one[0]=" "; scrn[CAN_SCRN].Print_String(one, X, Y);
+       one[0]=buf[i]; scrn[CAN_SCRN].Print_String(one, X, Y);
+       
+       X=X+6;  if(X>=126) { X=0; Y=Y+8; if(Y>=127)Y=0;}  // advance
+     }	  
+
+     Serial.println();
+
    } // nothing
-    
+  
   }else {
     //Serial.print("pin "); Serial.print(CAN0_INT); Serial.println(" is high: no data to read");
-  }
+  } // CAN0_INT
+
   
   if(0){ //  example of how to send:-
     if(millis() - prevTX >= invlTX){                    // Send this at a one second interval. 
