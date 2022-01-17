@@ -61,7 +61,7 @@ SerialIDset("\n#\tv3.3 " __FILE__ "\t" __DATE__ " " __TIME__);
 unsigned long prevTX = 0;                                        // Variable to store last execution time
 const unsigned int invlTX = 1000;                                // One second interval constant
 byte data[] = {0xAA, 0x55, 0x01, 0x10, 0xFF, 0x12, 0x34, 0x56};  // Generic CAN data to send
-uint8_t can_ok = 0;                                               // Gets set to 1 if the CAN initialized OK, and 2 when we get CAN data
+uint8_t can_ok = 0;                                               // Gets set to 1 if the CAN initialized OK, and 2 when we get CAN data, and 3 when we get valid CAN data
 
 // CAN RX Variables
 long unsigned int rxId;
@@ -73,12 +73,31 @@ char msgString[128];
 
 uint8_t last_err=0;
 uint8_t last_dve=0;
-int last_amps=0;
-int last_kwatts=0;
+float last_volts=0;
+float last_amps=0;
+long last_watts=0;
 int last_soc=0;
+int last_rpm=0;
+int s_guess=8;			// Guess at startup if we probably have 14S or 15S attached.  int(volts/3.96)=S  (works upto 16s)
+int last_temp_m=0;
+int last_temp_e=0;
+int last_temp_b=0;
+int last_temp_f=0;
+long unsigned int last_diag_e=0;
+long unsigned int last_diag_w=0;
+long unsigned int last_diag_n=0;
+unsigned int last_diags_r=0;
+unsigned int last_diags_i=0;
+float last_volt_i=0;
+float last_volt_e=0;
+float last_volt_b=0;
+int last_pc_t=0;
+int last_pc_m=0;
+int last_pc_c=0;
+int last_phase_a=0;
 
 unsigned char bright=0;
-unsigned char degsym[]={246,0}; // 246 is the font dergees-symbol
+unsigned char degsym[]={246,'C',0}; // 246 is the font dergees-symbol
 
 // CAN0 INT and CS
 #define CAN0_INT 2                              // Set INT to pin 2
@@ -123,6 +142,7 @@ SSD1283A_GUI scrn[]={ SSD1283A_GUI(CS_SCREEN1, LCD_CD_PIN_A0, LCD_RST_PIN, LCD_B
 #define BLACK   0x0000
 #define BLUE    0x001F
 #define RED     0xF800
+#define ORANGE  0xFF80
 #define GREEN   0x07E0
 #define CYAN    0x07FF
 #define MAGENTA 0xF81F
@@ -139,7 +159,7 @@ void sel_screen(int n) {
 
 
 
-
+/*
 // Function to display (P)ark, (N)eutral, or (D)rive on a display, and optionally the check-engine symbol
 void pnd(uint8_t screen_number, uint8_t dve) { // dve is 0 for Park, 1 for Neutral, 2 for Drive
   sel_screen(1 << screen_number);
@@ -170,9 +190,10 @@ void pnd2(uint8_t s,uint8_t dve, uint8_t draw) { // Draw (and un-draw) for the p
     else x+=PND_SIZE*6; 
   }
 } // pnd2
+*/
 
 
-
+/*
 // Function to show (or remove) the Check Engine symbol
 void check_engine(uint8_t s, uint8_t err) { //s is screen_number, err=0 means no error (un-draw the logo) err>0 means error
   uint8_t sz=2; // Set the size of the symbol
@@ -193,57 +214,113 @@ void check_engine(uint8_t s, uint8_t err) { //s is screen_number, err=0 means no
     //scrn[s].Print_String("", 45, 49+8);
   }
 } // check_engine
+*/
 
 
+// Function to display the battery VOLTS
+void volts(uint8_t screen_number, float val) { 
+  if((s_guess==8)&&(val<75))s_guess=int(val/3.96); // 14S or 15S
+  sel_screen(1 << screen_number);
+  volts2(screen_number, last_volts, 0);   // un-draw old
+  volts2(screen_number, val, 1);         // draw new
+  last_volts=val;                        // Remember what we just drew, so we can un-draw it later
+} // volts
+
+void volts2(uint8_t s,float val, uint8_t draw) {
+  scrn[s].Set_Text_Back_colour(BLACK);
+  if(!draw) scrn[s].Set_Text_colour(BLACK);
+  else scrn[s].Set_Text_colour(0,192,192); // teal
+
+  //#define AMP_SIZE 4  // 4 * 6 = 24px wide, 4 * 8 = 32px high
+  //#define AMP_SIZE 3  // 3 * 3 = 18px wide, 3 * 8 = 24px high
+  scrn[s].Set_Text_Size( 3 );  
+  //scrn[s].Print_Number_Int(val, 130/2 - (3 * 6 * AMP_SIZE)/2 , 1, 0, ' ',10); // "center" for 3 digits   ( num,  x, y, length, filler, base)
+
+  dtostrf(val, 4, 1, msgString); // 4 is mininum width, 2 is precision
+  // sprintf(msgString, "%2.1f", val); // arduino does not have %f
+  //scrn[s].Print_Number_Int(val, 0,0);
+  scrn[s].Print_String(msgString, 0,0);
+
+  if(draw) scrn[s].Set_Text_colour(WHITE);
+  dtostrf(val/s_guess, 3, 1, &msgString[100]); // 4 is mininum width, 2 is precision
+
+  sprintf(msgString, "%2dS. volts %s/cell", s_guess, &msgString[100]);
+  scrn[s].Set_Text_Size( 1 );  
+  scrn[s].Print_String(msgString, 0, 3*8);
+
+} // volts2
 
 
 // Function to display the current AMPS being drawn
-void amps(uint8_t screen_number, int val) { 
+void amps(uint8_t screen_number, float val) { 
   sel_screen(1 << screen_number);
   amps2(screen_number, last_amps, 0);   // un-draw old
   amps2(screen_number, val, 1);         // draw new
   last_amps=val;                        // Remember what we just drew, so we can un-draw it later
 } // amps
 
-void amps2(uint8_t s,int val, uint8_t draw) {
+void amps2(uint8_t s,float val, uint8_t draw) {
   scrn[s].Set_Text_Back_colour(BLACK);
   if(!draw) scrn[s].Set_Text_colour(BLACK);
   else scrn[s].Set_Text_colour(0,192,192); // teal
-
-  #define AMP_SIZE 4  // 4 * 6 = 24px wide, 4 * 8 = 32px high
-  scrn[s].Set_Text_Size( AMP_SIZE );  
-  scrn[s].Print_Number_Int(val, 130/2 - (3 * 6 * AMP_SIZE)/2 , 1, 0, ' ',10); // "center" for 3 digits   ( num,  x, y, length, filler, base)
-
-  if(draw) scrn[s].Set_Text_colour(WHITE);
-  scrn[s].Set_Text_Size( AMP_SIZE-1 );  
-  scrn[s].Print_String("AMPS", 130/2 - (3 * 6 * AMP_SIZE)/2, 8*AMP_SIZE);
+  dtostrf(val, 6, 1, &msgString[100]); // -888.5
+  //sprintf(msgString, "%5.1fA", val);
+  sprintf(msgString, "%sA", &msgString[100]);
+  scrn[s].Set_Text_Size( 1 );  
+  scrn[s].Print_String(msgString, 4*6*3,0);
 } // amps2
 
 
 
 // Function to display watts being drawn (or negative - regen - added)
-void kwatts(uint8_t screen_number, int val) { 
+void watts(uint8_t screen_number, long val) { 
   sel_screen(1 << screen_number);
-  kwatts2(screen_number, last_kwatts, 0);   // un-draw old
-  kwatts2(screen_number, val, 1);         // draw new
-  last_kwatts=val;                        // Remember what we just drew, so we can un-draw it later
-} // kwatts
+  watts2(screen_number, last_watts, 0);   // un-draw old
+  watts2(screen_number, val, 1);         // draw new
+  last_watts=val;                        // Remember what we just drew, so we can un-draw it later
+} // watts
 
-void kwatts2(uint8_t s,int val, uint8_t draw) {
+void watts2(uint8_t s,long val, uint8_t draw) {
   scrn[s].Set_Text_Back_colour(BLACK);
   if(!draw) scrn[s].Set_Text_colour(BLACK);
   else if(val>=0) scrn[s].Set_Text_colour(0,192,192); // teal
   else  scrn[s].Set_Text_colour(GREEN); // make it green for regen :-)
+  sprintf(msgString, "%6ldW", val);
+  scrn[s].Set_Text_Size( 1 );  
+  scrn[s].Print_String(msgString, 4*6*3,1*8);
+} // watts2
 
-  #define KW_SIZE 4  // 4 * 6 = 24px wide, 4 * 8 = 32px high
-  scrn[s].Set_Text_Size( KW_SIZE );  
-  scrn[s].Print_Number_Int(val, 130/2 - (3 * 6 * KW_SIZE)/2 - KW_SIZE*3 , 66, 3, ' ',10); // "center" for 2 digits   ( num,  x, y, length, filler, base)
 
-  if(draw) scrn[s].Set_Text_colour(WHITE);
-  scrn[s].Set_Text_Size( KW_SIZE-1 );  
-  scrn[s].Print_String(" kW", 130/2 - (3 * 6 * KW_SIZE)/2 , 66+8*KW_SIZE);
-} // kwatts2
 
+// Function to display rpm being drawn (or negative - regen - added)
+void rpm(uint8_t screen_number, int val) { 
+  sel_screen(1 << screen_number);
+  rpm2(screen_number, last_rpm, 0);   // un-draw old
+  rpm2(screen_number, val, 1);         // draw new
+  last_rpm=val;                        // Remember what we just drew, so we can un-draw it later
+} //rpm 
+
+void rpm2(uint8_t s,int val, uint8_t draw) {
+  scrn[s].Set_Text_Back_colour(BLACK);
+  if(!draw) scrn[s].Set_Text_colour(BLACK);
+  scrn[s].Set_Text_colour(0,192,192); // teal
+  sprintf(msgString, "%6dR", val);
+  scrn[s].Set_Text_Size( 1 );  
+  scrn[s].Print_String(msgString, 4*6*3,2*8);
+} // rpm2
+
+
+
+int socv(float val) { // Convert an Li-iON cell voltage to a charge %
+  int pct;
+  if(val<3.7) {
+    val = 133.33*(val*val*val) - 1365.0*(val*val) + 4671.2*val - 5341.6; // See https://www.powerstream.com/lithium-ion-charge-voltage.htm
+  } else {
+    val = 175.33*val*val*val - 2304.0*val*val + 10164*val - 14939;
+  }
+  pct=val;
+  return pct; // soc(screen_number,pct);
+} // socv
 
 
 // Function to display the remaining battery capacity in numbers (%) 
@@ -252,7 +329,7 @@ void soc(uint8_t screen_number, int val) {
   soc2(screen_number, last_soc, 0);   // un-draw old
   soc2(screen_number, val, 1);         // draw new
   last_soc=val;                        // Remember what we just drew, so we can un-draw it later
-} // kwatts
+} // watts
 
 void soc2(uint8_t s,int val, uint8_t draw) {
   scrn[s].Set_Text_Back_colour(BLACK);
@@ -273,8 +350,8 @@ void soc2(uint8_t s,int val, uint8_t draw) {
 
 void socBar(uint8_t s,int percent) {
   int spc=130 * percent; spc/=100; // Scale the percentage to screen pixels.
-  if(spc<130) scrn[s].Fill_Rect( 125,0,       129, 129-spc, BLACK); // Black top (overwrite prior green)
-  if(spc>0)   scrn[s].Fill_Rect( 125,130-spc, 129,129,      GREEN); // Green bottom
+  if(spc<130) scrn[s].Fill_Rect( 121,0,       129, 129-spc, BLACK); // Black top (overwrite prior green)
+  if(spc>0)   scrn[s].Fill_Rect( 121,130-spc, 129,129,      GREEN); // Green bottom
 
     // Draw_Line(x0, y0, x1, y1);
     // Draw_Fast_HLine(int16_t x, int16_t y, int16_t w);
@@ -286,34 +363,107 @@ void socBar(uint8_t s,int percent) {
 
 
 // Function to display pretty temperature data
-void tempC(uint8_t screen_number, int val, int last_val, int x_offset) { 
-  sel_screen(1 << screen_number);
-  tempC2(screen_number, last_val, 0, x_offset);   // un-draw old
-  tempC2(screen_number, val, 1, x_offset);         // draw new
-} // tempC
-
-void tempC2(uint8_t s,int val, uint8_t draw, int x_offset) {
+void tempC(uint8_t s,int val, uint8_t draw, int x_offset, int y_offset, char *label, int orange, int red) {
+  sel_screen(1 << s);
   scrn[s].Set_Text_Back_colour(BLACK);
   if(!draw) scrn[s].Set_Text_colour(BLACK);
-  else scrn[s].Set_Text_colour(0,192,192); // teal
+  else { 
+    if(val >= red) scrn[s].Set_Text_colour(RED);
+    else if(val >= orange) scrn[s].Set_Text_colour(YELLOW);
+    else scrn[s].Set_Text_colour(GREEN);
+  }
 
   #define TEMP_SIZE 2  // 4 * 6 = 24px wide, 4 * 8 = 32px high
   scrn[s].Set_Text_Size( TEMP_SIZE );  
   
-  sprintf(msgString, "%d%sC", val, degsym);
+  sprintf(msgString, "%3d", val);
  
-  scrn[s].Print_String(msgString, x_offset + 10, 130 - 8*TEMP_SIZE-10); // Do it all in teal, so the degrees-C is in the right spot
-  if(draw) { // re-draw just the number, in white now
-    scrn[s].Set_Text_colour(WHITE);
-    sprintf(msgString, "%d", val);
-    scrn[s].Print_String(msgString, x_offset + 10, 130 - 8*TEMP_SIZE-10); // Do it all in teal, so the degrees-C is in the right spot
-  }
-
-  // Draw a thermometer in graphics here...
+  scrn[s].Print_String(msgString, x_offset,         y_offset);
+  scrn[s].Set_Text_Size( 1 );  
+  scrn[s].Print_String(degsym,    x_offset + 3*2*6, y_offset);
+  scrn[s].Print_String(label,    x_offset + 2*6, y_offset+2*8);
   
-} // tempC2
+} // tempC
 
 
+void temp_m(uint8_t screen_number, int val) { tempC(screen_number, last_temp_m, 0, 0,       4*8, "",  80,  90); last_temp_m=val; tempC(screen_number, val, 1, 0,       4*8, " Motor",  80,  90); }
+void temp_e(uint8_t screen_number, int val) { tempC(screen_number, last_temp_e, 0, 4*2*6+4, 4*8, "",  90, 100); last_temp_e=val; tempC(screen_number, val, 1, 4*2*6+4, 4*8, " ESC",    90, 100); }
+void temp_b(uint8_t screen_number, int val) { tempC(screen_number, last_temp_b, 0, 0,       7*8, "",  45,  50); last_temp_b=val; tempC(screen_number, val, 1, 0,       7*8, "Battery", 45,  50); }
+void temp_f(uint8_t screen_number, int val) { tempC(screen_number, last_temp_f, 0, 4*2*6+4, 7*8, "", 110, 120); last_temp_f=val; tempC(screen_number, val, 1, 4*2*6+4, 7*8, " FET",   110, 120); }
+
+
+// Function to display Diagnostic bit string
+void diag(uint8_t s,unsigned long int val, uint8_t draw, int x_offset, int y_offset, char *label, uint8_t colr) {
+  sel_screen(1 << s);
+  scrn[s].Set_Text_Back_colour(BLACK);
+  if(!draw) scrn[s].Set_Text_colour(BLACK);
+  else { 
+    if(colr==1) scrn[s].Set_Text_colour(RED);
+    else if(colr==2) scrn[s].Set_Text_colour(ORANGE);
+    else if(colr==3) scrn[s].Set_Text_colour(YELLOW);
+    else if(colr>3) scrn[s].Set_Text_colour(WHITE);
+  }
+  scrn[s].Set_Text_Size( 1 );
+  sprintf(msgString, "%s%08lX", label, val);
+  //  scrn[s].Print_Number_Int(val, 0, 16, 0, ' ',16);
+  scrn[s].Print_String(msgString, x_offset,         y_offset);
+} // diag
+
+// Function to display Diagnostic bit string
+void diags(uint8_t s,unsigned int val, uint8_t draw, int x_offset, int y_offset, char *label, uint8_t colr) {
+  sel_screen(1 << s);
+  scrn[s].Set_Text_Back_colour(BLACK);
+  if(!draw) scrn[s].Set_Text_colour(BLACK);
+  else { 
+    if(colr==1) scrn[s].Set_Text_colour(RED);
+    else if(colr==2) scrn[s].Set_Text_colour(ORANGE);
+    else if(colr==3) scrn[s].Set_Text_colour(YELLOW);
+    else if(colr>3) scrn[s].Set_Text_colour(WHITE);
+  }
+  scrn[s].Set_Text_Size( 1 );
+  sprintf(msgString, "%s%04X", label, val);
+  //  scrn[s].Print_Number_Int(val, 0, 16, 0, ' ',16);
+  scrn[s].Print_String(msgString, x_offset,         y_offset);
+} // diags
+
+void volt_v(uint8_t s, float val, uint8_t draw, int x_offset, int y_offset, char *label, uint8_t nlen, uint8_t digs) {
+  sel_screen(1 << s);
+  scrn[s].Set_Text_Back_colour(BLACK);
+  if(!draw) scrn[s].Set_Text_colour(BLACK);
+  else scrn[s].Set_Text_colour(WHITE);
+  dtostrf(val, nlen, digs, &msgString[100]);
+  sprintf(msgString, label, &msgString[100]);
+  scrn[s].Set_Text_Size( 1 );
+  scrn[s].Print_String(msgString, x_offset, y_offset);
+} // volt_v
+
+void percent(uint8_t s, int val, uint8_t draw, int x_offset, int y_offset, char *label) {
+  sel_screen(1 << s);
+  scrn[s].Set_Text_Back_colour(BLACK);
+  if(!draw) scrn[s].Set_Text_colour(BLACK);
+  else scrn[s].Set_Text_colour(WHITE);
+  sprintf(msgString, label, val);
+  scrn[s].Set_Text_Size( 1 );
+  scrn[s].Print_String(msgString, x_offset, y_offset);
+} // percent
+
+
+
+void diag_e(uint8_t screen_number,  unsigned long int val) { diag(screen_number,  last_diag_e,  0, 0,    13*8+3, "E:",1);   last_diag_e=val;  diag(screen_number,  val, 1, 0,    13*8+3, "E:",1); }
+void diag_w(uint8_t screen_number,  unsigned long int val) { diag(screen_number,  last_diag_w,  0, 0,    14*8+3, "W:",2);   last_diag_w=val;  diag(screen_number,  val, 1, 0,    14*8+3, "W:",2); }
+void diag_n(uint8_t screen_number,  unsigned long int val) { diag(screen_number,  last_diag_n,  0, 0,    15*8+3, "N:",3);   last_diag_n=val;  diag(screen_number,  val, 1, 0,    15*8+3, "N:",3); }
+void diags_r(uint8_t screen_number,      unsigned int val) { diags(screen_number, last_diags_r, 0, 11*6, 14*8+3, "rsv:",4); last_diags_r=val; diags(screen_number, val, 1, 11*6, 14*8+3, "rsv:",4); }
+void diags_i(uint8_t screen_number,      unsigned int val) { diags(screen_number, last_diags_i, 0, 11*6, 15*8+3, "Int:",5); last_diags_i=val; diags(screen_number, val, 1, 11*6, 15*8+3, "Int:",5); }
+
+void volt_i(uint8_t screen_number, float val) { volt_v(screen_number, last_volt_i, 0, 3*6, 1+10 * 8, "%s", 5, 1); last_volt_i=val;  volt_v(screen_number, val, 1, 0, 1+10 * 8, "vIN%s", 5, 1); } 
+void volt_e(uint8_t screen_number, float val) { volt_v(screen_number, last_volt_e, 0, 3*6, 1+11 * 8, "%s", 7, 3); last_volt_e=val;  volt_v(screen_number, val, 1, 0, 1+11 * 8, "vEX%s", 5, 1); } 
+void volt_b(uint8_t screen_number, float val) { volt_v(screen_number, last_volt_b, 0, 3*6, 1+12 * 8, "%s", 5, 1); last_volt_b=val;  volt_v(screen_number, val, 1, 0, 1+12 * 8, "BUS%s", 5, 1); } 
+
+void pc_t(uint8_t screen_number, int val) { percent(screen_number, last_pc_t, 0, (11+3)*6, 1+11 * 8, "%d"); last_pc_t=val; percent(screen_number, val, 1, (11)*6, 1+11 * 8, "Th %d %%"); }
+void pc_m(uint8_t screen_number, int val) { percent(screen_number, last_pc_m, 0, (11+3)*6, 1+12 * 8, "%d"); last_pc_m=val; percent(screen_number, val, 1, (11)*6, 1+12 * 8, "Mt %d %%"); }
+void pc_c(uint8_t screen_number, int val) { percent(screen_number, last_pc_c, 0, (11+3)*6, 1+13 * 8, "%d"); last_pc_c=val; percent(screen_number, val, 1, (11)*6, 1+13 * 8, "Cp %d %%"); }
+
+void phase_a(uint8_t screen_number, int val) { percent(screen_number, last_phase_a, 0, (11+4)*6, 1+10 * 8, "%s"); last_phase_a=val; percent(screen_number, val, 1, (11)*6, 1+10 * 8, "PhA %d"); } 
 
 void signal(uint8_t s,bool has_sig) {
   sel_screen(1 << s);
@@ -321,11 +471,11 @@ void signal(uint8_t s,bool has_sig) {
   if(has_sig) {//	  1234567890123 = 13 = 78px wide
     scrn[s].Set_Text_Back_colour(BLACK);
     scrn[s].Set_Text_colour(RED);
-    scrn[s].Print_String("               ", 20, 57);
+    scrn[s].Print_String(" No Valid CAN Signal ", 2, 122);
   } else {
     scrn[s].Set_Text_Back_colour(RED);
     scrn[s].Set_Text_colour(WHITE);
-    scrn[s].Print_String(" No CAN Signal ", 20, 57);
+    scrn[s].Print_String(" No CAN Signal ", 20, 122); // 57 was middle of screen
   }
 }
 
@@ -349,15 +499,39 @@ void show_font(uint8_t s) {
 
 // Light up all the instruments like analogue cars do, to check all guages are working...
 void instrument_check() {
-  check_engine(0,1);
+  volts(0,88.8);
+  amps(0,-88.8);
+  watts(0,88888);
+  rpm(0,8888);
+  temp_m(0,888);	// Motor
+  temp_e(0,888);	// ESC
+  temp_b(0,888);	// Battery
+  temp_f(0,888);	// FET
+
+  diag_e(0,0x88888888);	// Error code
+  diag_w(0,0x88888888);	// Warning code
+  diag_n(0,0x88888888);	// Notice code
+  diags_r(0,0x8888);	// reserved code
+  diags_i(0,0x8888);	// ESC Init code
+
+  volt_i(0,88.8);	// vIN	y=10
+  volt_e(0,88.888);	// vEX	y=11
+  volt_b(0,88.8);	// BUS	y=12
+
+  phase_a(0,888);	// 		y=10 x=11*6
+  pc_t(0,100);		// Throttle %	y=11
+  pc_m(0,100);		// Motor PWM %	y=12
+  pc_c(0,socv(3.8));		// Battrey Capacity % 	y=13
+
+
+
+  //check_engine(0,1);
   //pnd(0,1);
-  amps(0,888);
-  kwatts(0,-88);
-  soc(0,88);
-  socBar(0,66); // 66 percent
+  //soc(0,88);
+  socBar(0,88); // 88 percent
   //show_font(1);  
-  tempC(0,88,0,0); // Caller (us here) needs to cache the previous temp numbers
-  tempC(0,88,0,130/2);
+  //tempC(0,88,0,0); // Caller (us here) needs to cache the previous temp numbers
+  //tempC(0,88,0,130/2);
   signal(0,false);
 } // instrument_check
 
@@ -394,7 +568,7 @@ void demo_screen() {
     scrn[s].Print_Number_Float(01234.56789, 2, 0, 110, '.', 0, ' ');  
     //scrn[s].Print_Number_Int(0xDEADBEF, 0, 134, 0, ' ',16);
 
-    pnd(s, s%3); // 0 (P) ,1 (N), ,2 (D)
+    //pnd(s, s%3); // 0 (P) ,1 (N), ,2 (D)
 
   } // s
 
@@ -455,7 +629,7 @@ void setup()
     scrn[0].Set_Text_Size(2);
     scrn[0].Print_String("CAN Init", 17, 55);
     scrn[0].Print_String( "failed",  29, 65);
-    check_engine(0,1);
+    //check_engine(0,1);
   } 
 
   sel_screen(0); // de-select them
@@ -473,7 +647,9 @@ void setup()
 
 
 
-
+void good_can() {
+  if(can_ok<3) { can_ok=3; sel_screen(1+2+4+8); scrn[0].Fill_Screen(BLACK); } // Clear all guage-test readings as soon as we get any real good data
+}
 
 
 void loop() 
@@ -496,7 +672,56 @@ void loop()
     CAN0.readMsgBuf(&rxId, &len, rxBuf);              // Read data: len = data length, buf = data byte(s)
 
     if ((rxId>0)||(len>0)) { // we were getting spurious zeros too much...
-      if(can_ok!=2) { can_ok=2; signal(0,true); }
+      if(can_ok<2) { can_ok=2; signal(0,true); }
+
+     if((rxId & 0x80000000) == 0x80000000) {            // HBCi used Extended IDs
+       unsigned long hbcid=rxId & 0x1FFFFFFF;
+       if	 (hbcid==0x14A30001) { good_can();
+	 uint32_t batvolti=rxBuf[1]<<8+rxBuf[0];
+	 float batvolt=batvolti; batvolt=batvolt/10;	// 14s or 15s.  	100%=4.2v  0%=3.0v
+							// 45v .. 63v		0x251 = 59.3v
+							// 42v .. 58.8v
+   volts(0,batvolt);             
+	 uint32_t batampsu=rxBuf[3]<<8+rxBuf[2];	// fix this (signed)
+	 int32_t batampsi=(int32_t)batampsu;
+	 float batamps=batampsi; batamps=batamps/10;
+   amps(0,batamps);
+	 uint64_t rpmi=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];
+   rpm(0,rpmi);
+
+       } else if (hbcid==0x14A30002) {  good_can();
+	 uint32_t motortemp=rxBuf[1]<<8+rxBuf[0];	// 90c max
+	 uint32_t esctemp=rxBuf[3]<<8+rxBuf[2];		// 100c max
+	 uint32_t exttemp=rxBuf[7]<<8+rxBuf[6];		// 50c max
+   temp_m(0,motortemp);
+   temp_e(0,esctemp);
+   temp_b(0,exttemp);
+	 
+       } else if (hbcid==0x14A30003) { good_can();
+	 uint64_t pwmout=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];	// /1023 % ?
+	 uint64_t pwmin=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];	//
+	 
+       } else if (hbcid==0x14A30004) { good_can();
+	 uint64_t error=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];
+	 uint64_t warning=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];
+	 
+       } else if (hbcid==0x14A30005) { good_can();
+	 uint64_t notice=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];
+	 uint32_t escstatus=rxBuf[7]<<8+rxBuf[6];
+	 
+       } else if (hbcid==0x14A30006) { good_can();
+	 uint32_t batintvolti=rxBuf[1]<<8+rxBuf[0];
+	 float batintvolt=batintvolti; batintvolt/=10;
+	 uint32_t extfeedvolti=rxBuf[3]<<8+rxBuf[2];
+	 float extfeedvolt=extfeedvolti; extfeedvolt/=1000;
+	 uint32_t phaseamps=rxBuf[7]<<8+rxBuf[6];
+	 
+       } else if (hbcid==0x14A30007) { good_can();
+	 uint32_t mosfettemp=rxBuf[7]<<8+rxBuf[6];
+	 
+       }
+
+     }
 
      if((rxId & 0x80000000) == 0x80000000) {            // Determine if ID is standard (11 bits) or extended (29 bits)
        sprintf(msgString, "Extended ID: 0x%.8lX  DLC: %1d  Data:", (rxId & 0x1FFFFFFF), len);
@@ -564,3 +789,107 @@ void loop()
   } // send test
 
 } // loop()
+
+
+/* Sample data capture:-
+
+
+
+#       v3.2 C:\Users\cnd\Documents\Arduino\Arduino_Nano_SSD1283A_CAN_e_Paramotor_Display\Arduino_Nano_SSD1283A_CAN_e_Paramotor_Display.ino     Jan  3 2022 13:34:39
+Entering Configuration Mode Successful!
+Setting Baudrate Successful!
+MCP2515 Initialized Successfully!
+Extended ID: 0x14A30001  DLC: 8  Data: 0x51 0x02 0x00 0x00 0x00 0x00 0x00 0x00
+Extended ID: 0x14A30002  DLC: 8  Data: 0x1C 0x00 0x1A 0x00 0x1E 0x00 0x00 0x00
+Extended ID: 0x14A30003  DLC: 4  Data: 0x00 0x00 0x00 0x00
+Extended ID: 0x14A30007  DLC: 8  Data: 0x00 0x00 0x00 0x00 0x00 0x00 0x7C 0x00  * many
+
+Extended ID: 0x14A30006  DLC: 8  Data: 0x51 0x02 0x00 0x00 0x00 0x00 0x00 0x00
+Extended ID: 0x14A30006  DLC: 8  Data: 0x51 0x02 0x00 0x00 0x00 0x00 0x00 0x00
+Extended ID: 0x14A30001  DLC: 8  Data: 0x50 0x02 0x04 0x00 0x15 0x03 0x00 0x00
+Extended ID: 0x14A30001  DLC: 8  Data: 0x50 0x02 0x2E 0x00 0x16 0x03 0x00 0x00
+Extended ID: 0x14A30001  DLC: 8  Data: 0x51 0x02 0xDA 0xFF 0xE6 0x06 0x00 0x00
+Extended ID: 0x14A30002  DLC: 8  Data: 0x1D 0x00 0x1B 0x00 0x1E 0x00 0x00 0x00
+Extended ID: 0x14A30001  DLC: 8  Data: 0x50 0x02 0x00 0x00 0x00 0x00 0x00 0x00
+Extended ID: 0x14A30002  DLC: 8  Data: 0x1D 0x00 0x1B 0x00 0x1E 0x00 0x00 0x00
+Extended ID: 0x14A30003  DLC: 4  Data: 0x00 0x00 0x00 0x00 
+
+
+
+Extended ID: 0x14A30001  DLC: 8  Data: 0x51 0x02 0xDA 0xFF 0xE6 0x06 0x00 0x00
+	01= battery terminal voltage	x0.1V		0x251 = 59.3
+	23= current			x0.1A		0xFFDA =
+	4567= RPM			x1RPM
+Extended ID: 0x14A30002  DLC: 8  Data: 0x1C 0x00 0x1A 0x00 0x1E 0x00 0x00 0x00
+	01 = motor temp			x1C
+	23 = ESC temp			x1C
+	67 = ext temp			x1C
+Extended ID: 0x14A30003  DLC: 4  Data: 0x00 0x00 0x00 0x00
+	01 = output PWM			x1/1023
+	23 = input PWM			x1/1023
+Extended ID: 0x14A30004  DLC: 8  Data: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
+	0123 = ERROR  (bit patterns)
+	4567 = WARNING
+Extended ID: 0x14A30005  DLC: 8  Data: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
+	0123 = NOTICE  (bit patterns)
+	67 = ESC Init status
+Extended ID: 0x14A30006  DLC: 8  Data: 0x51 0x02 0x00 0x00 0x00 0x00 0x00 0x00
+	01= battery internal voltage	x0.1V
+	23= external feeding voltage	x0.001V
+	67= phase current		x1A
+Extended ID: 0x14A30007  DLC: 8  Data: 0x00 0x00 0x00 0x00 0x00 0x00 0x7C 0x00  * many
+	6= Internal BUS voltage		x0.1v
+	7= MOS-FET temperature		x1C
+
+BBatt
+
+14s, 15s.
+3v is 0%
+
+Batt temp: 50c
+Motor 90c
+Controler temp 100c
+
+
+FontSz  Cols	Rows
+1	21	16
+2	10	8
+3	7	5
+4	5	4
+5	4	3
+6	3	2
+7	3	2
+8	2	2
+9	2	1
+
+
+Volts	54.6
+Amps	-999.1
+Watts	99,999
+RPM	9999
+Motor	111.C
+ESC	111.C
+FET	111.C
+Batt	111.C
+Throttle -100%
+Motor	-100%
+Error	1234ABCD
+Warn    1234ABCD
+Notice  1234ABCD
+INIT	12AB
+vIN	88.8
+vEX	88.001
+PhaseA	888
+?	12AB
+vBUS	88.8
+
+
+
+
+
+
+
+
+
+
+*/
