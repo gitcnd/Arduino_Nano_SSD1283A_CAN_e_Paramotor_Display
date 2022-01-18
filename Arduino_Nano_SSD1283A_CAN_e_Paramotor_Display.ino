@@ -51,7 +51,7 @@
 
 
 #include <SerialID.h>  // So we know what code and version is running inside our MCUs
-SerialIDset("\n#\tv3.3 " __FILE__ "\t" __DATE__ " " __TIME__);
+SerialIDset("\n#\tv3.4 " __FILE__ "\t" __DATE__ " " __TIME__);
 
 
 #include <mcp_can.h>
@@ -220,10 +220,12 @@ void check_engine(uint8_t s, uint8_t err) { //s is screen_number, err=0 means no
 // Function to display the battery VOLTS
 void volts(uint8_t screen_number, float val) { 
   if((s_guess==8)&&(val<75))s_guess=int(val/3.96); // 14S or 15S
-  sel_screen(1 << screen_number);
-  volts2(screen_number, last_volts, 0);   // un-draw old
-  volts2(screen_number, val, 1);         // draw new
-  last_volts=val;                        // Remember what we just drew, so we can un-draw it later
+  if(last_volts != val) { // Skip re-drawing anything that hasn't changed
+    sel_screen(1 << screen_number);
+    volts2(screen_number, last_volts, 0);   // un-draw old
+    volts2(screen_number, val, 1);         // draw new
+    last_volts=val;                        // Remember what we just drew, so we can un-draw it later
+  }
 } // volts
 
 void volts2(uint8_t s,float val, uint8_t draw) {
@@ -248,15 +250,20 @@ void volts2(uint8_t s,float val, uint8_t draw) {
   scrn[s].Set_Text_Size( 1 );  
   scrn[s].Print_String(msgString, 0, 3*8);
 
+  socBar(s,socv(val/s_guess));		// Show capacity remaining (these are REST numbers - not under-load ones)
+  pc_c(s,socv(val/s_guess));		// Show capacity as a number also
+
 } // volts2
 
 
 // Function to display the current AMPS being drawn
 void amps(uint8_t screen_number, float val) { 
-  sel_screen(1 << screen_number);
-  amps2(screen_number, last_amps, 0);   // un-draw old
-  amps2(screen_number, val, 1);         // draw new
-  last_amps=val;                        // Remember what we just drew, so we can un-draw it later
+  if(last_amps != val) { // Skip re-drawing anything that hasn't changed
+    sel_screen(1 << screen_number);
+    amps2(screen_number, last_amps, 0);   // un-draw old
+    amps2(screen_number, val, 1);         // draw new
+    last_amps=val;                        // Remember what we just drew, so we can un-draw it later
+  }
 } // amps
 
 void amps2(uint8_t s,float val, uint8_t draw) {
@@ -274,10 +281,12 @@ void amps2(uint8_t s,float val, uint8_t draw) {
 
 // Function to display watts being drawn (or negative - regen - added)
 void watts(uint8_t screen_number, long val) { 
-  sel_screen(1 << screen_number);
-  watts2(screen_number, last_watts, 0);   // un-draw old
-  watts2(screen_number, val, 1);         // draw new
-  last_watts=val;                        // Remember what we just drew, so we can un-draw it later
+  if( last_watts != val ) { // Skip re-drawing anything that hasn't changed
+    sel_screen(1 << screen_number);
+    watts2(screen_number, last_watts, 0);   // un-draw old
+    watts2(screen_number, val, 1);         // draw new
+    last_watts=val;                        // Remember what we just drew, so we can un-draw it later
+  }
 } // watts
 
 void watts2(uint8_t s,long val, uint8_t draw) {
@@ -294,10 +303,12 @@ void watts2(uint8_t s,long val, uint8_t draw) {
 
 // Function to display rpm being drawn (or negative - regen - added)
 void rpm(uint8_t screen_number, int val) { 
-  sel_screen(1 << screen_number);
-  rpm2(screen_number, last_rpm, 0);   // un-draw old
-  rpm2(screen_number, val, 1);         // draw new
-  last_rpm=val;                        // Remember what we just drew, so we can un-draw it later
+  if( last_rpm != val ) { // Skip re-drawing anything that hasn't changed
+    sel_screen(1 << screen_number);
+    rpm2(screen_number, last_rpm, 0);   // un-draw old
+    rpm2(screen_number, val, 1);         // draw new
+    last_rpm=val;                        // Remember what we just drew, so we can un-draw it later
+  }
 } //rpm 
 
 void rpm2(uint8_t s,int val, uint8_t draw) {
@@ -319,17 +330,20 @@ int socv(float val) { // Convert an Li-iON cell voltage to a charge %
     val = 175.33*val*val*val - 2304.0*val*val + 10164*val - 14939;
   }
   pct=val;
+  if(pct>150)pct=150; // calc problem.
   return pct; // soc(screen_number,pct);
 } // socv
 
 
 // Function to display the remaining battery capacity in numbers (%) 
 void soc(uint8_t screen_number, int val) { 
-  sel_screen(1 << screen_number);
-  soc2(screen_number, last_soc, 0);   // un-draw old
-  soc2(screen_number, val, 1);         // draw new
-  last_soc=val;                        // Remember what we just drew, so we can un-draw it later
-} // watts
+  if( last_soc != val ) { // Skip re-drawing anything that hasn't changed
+    sel_screen(1 << screen_number);
+    soc2(screen_number, last_soc, 0);   // un-draw old
+    soc2(screen_number, val, 1);         // draw new
+    last_soc=val;                        // Remember what we just drew, so we can un-draw it later
+  }
+} // soc
 
 void soc2(uint8_t s,int val, uint8_t draw) {
   scrn[s].Set_Text_Back_colour(BLACK);
@@ -350,8 +364,13 @@ void soc2(uint8_t s,int val, uint8_t draw) {
 
 void socBar(uint8_t s,int percent) {
   int spc=130 * percent; spc/=100; // Scale the percentage to screen pixels.
+  if(spc>129)spc=130; // ignore 101%+
   if(spc<130) scrn[s].Fill_Rect( 121,0,       129, 129-spc, BLACK); // Black top (overwrite prior green)
-  if(spc>0)   scrn[s].Fill_Rect( 121,130-spc, 129,129,      GREEN); // Green bottom
+  if(spc>0){
+    if(spc>49) scrn[s].Fill_Rect( 121,130-spc, 129,129,      GREEN); // Green bottom
+    else if(spc>24) scrn[s].Fill_Rect( 121,130-spc, 129,129,      YELLOW);
+    else scrn[s].Fill_Rect( 121,130-spc, 129,129,      RED);
+  }
 
     // Draw_Line(x0, y0, x1, y1);
     // Draw_Fast_HLine(int16_t x, int16_t y, int16_t w);
@@ -386,10 +405,10 @@ void tempC(uint8_t s,int val, uint8_t draw, int x_offset, int y_offset, char *la
 } // tempC
 
 
-void temp_m(uint8_t screen_number, int val) { tempC(screen_number, last_temp_m, 0, 0,       4*8, "",  80,  90); last_temp_m=val; tempC(screen_number, val, 1, 0,       4*8, " Motor",  80,  90); }
-void temp_e(uint8_t screen_number, int val) { tempC(screen_number, last_temp_e, 0, 4*2*6+4, 4*8, "",  90, 100); last_temp_e=val; tempC(screen_number, val, 1, 4*2*6+4, 4*8, " ESC",    90, 100); }
-void temp_b(uint8_t screen_number, int val) { tempC(screen_number, last_temp_b, 0, 0,       7*8, "",  45,  50); last_temp_b=val; tempC(screen_number, val, 1, 0,       7*8, "Battery", 45,  50); }
-void temp_f(uint8_t screen_number, int val) { tempC(screen_number, last_temp_f, 0, 4*2*6+4, 7*8, "", 110, 120); last_temp_f=val; tempC(screen_number, val, 1, 4*2*6+4, 7*8, " FET",   110, 120); }
+void temp_m(uint8_t screen_number, int val) { if( last_temp_m != val ) { tempC(screen_number, last_temp_m, 0, 0,       4*8, "",  80,  90); last_temp_m=val; tempC(screen_number, val, 1, 0,       4*8, " Motor",  80,  90); }}
+void temp_e(uint8_t screen_number, int val) { if( last_temp_e != val ) { tempC(screen_number, last_temp_e, 0, 4*2*6+4, 4*8, "",  90, 100); last_temp_e=val; tempC(screen_number, val, 1, 4*2*6+4, 4*8, " ESC",    90, 100); }}
+void temp_b(uint8_t screen_number, int val) { if( last_temp_b != val ) { tempC(screen_number, last_temp_b, 0, 0,       7*8, "",  45,  50); last_temp_b=val; tempC(screen_number, val, 1, 0,       7*8, "Battery", 45,  50); }}
+void temp_f(uint8_t screen_number, int val) { if( last_temp_f != val ) { tempC(screen_number, last_temp_f, 0, 4*2*6+4, 7*8, "", 110, 120); last_temp_f=val; tempC(screen_number, val, 1, 4*2*6+4, 7*8, " FET",   110, 120); }}
 
 
 // Function to display Diagnostic bit string
@@ -449,21 +468,21 @@ void percent(uint8_t s, int val, uint8_t draw, int x_offset, int y_offset, char 
 
 
 
-void diag_e(uint8_t screen_number,  unsigned long int val) { diag(screen_number,  last_diag_e,  0, 0,    13*8+3, "E:",1);   last_diag_e=val;  diag(screen_number,  val, 1, 0,    13*8+3, "E:",1); }
-void diag_w(uint8_t screen_number,  unsigned long int val) { diag(screen_number,  last_diag_w,  0, 0,    14*8+3, "W:",2);   last_diag_w=val;  diag(screen_number,  val, 1, 0,    14*8+3, "W:",2); }
-void diag_n(uint8_t screen_number,  unsigned long int val) { diag(screen_number,  last_diag_n,  0, 0,    15*8+3, "N:",3);   last_diag_n=val;  diag(screen_number,  val, 1, 0,    15*8+3, "N:",3); }
-void diags_r(uint8_t screen_number,      unsigned int val) { diags(screen_number, last_diags_r, 0, 11*6, 14*8+3, "rsv:",4); last_diags_r=val; diags(screen_number, val, 1, 11*6, 14*8+3, "rsv:",4); }
-void diags_i(uint8_t screen_number,      unsigned int val) { diags(screen_number, last_diags_i, 0, 11*6, 15*8+3, "Int:",5); last_diags_i=val; diags(screen_number, val, 1, 11*6, 15*8+3, "Int:",5); }
+void diag_e(uint8_t screen_number,  unsigned long int val) { if( last_diag_e != val ) { diag(screen_number,  last_diag_e,  0, 0,    13*8+3, "E:",1);   last_diag_e=val;  diag(screen_number,  val, 1, 0,    13*8+3, "E:",1); }}
+void diag_w(uint8_t screen_number,  unsigned long int val) { if( last_diag_w != val ) { diag(screen_number,  last_diag_w,  0, 0,    14*8+3, "W:",2);   last_diag_w=val;  diag(screen_number,  val, 1, 0,    14*8+3, "W:",2); }}
+void diag_n(uint8_t screen_number,  unsigned long int val) { if( last_diag_n != val ) { diag(screen_number,  last_diag_n,  0, 0,    15*8+3, "N:",3);   last_diag_n=val;  diag(screen_number,  val, 1, 0,    15*8+3, "N:",3); }}
+void diags_r(uint8_t screen_number,      unsigned int val) { if( last_diags_r != val ) { diags(screen_number, last_diags_r, 0, 11*6, 14*8+3, "rsv:",4); last_diags_r=val; diags(screen_number, val, 1, 11*6, 14*8+3, "rsv:",4); }}
+void diags_i(uint8_t screen_number,      unsigned int val) { if( last_diags_i != val ) { diags(screen_number, last_diags_i, 0, 11*6, 15*8+3, "Int:",5); last_diags_i=val; diags(screen_number, val, 1, 11*6, 15*8+3, "Int:",5); }}
 
-void volt_i(uint8_t screen_number, float val) { volt_v(screen_number, last_volt_i, 0, 3*6, 1+10 * 8, "%s", 5, 1); last_volt_i=val;  volt_v(screen_number, val, 1, 0, 1+10 * 8, "vIN%s", 5, 1); } 
-void volt_e(uint8_t screen_number, float val) { volt_v(screen_number, last_volt_e, 0, 3*6, 1+11 * 8, "%s", 7, 3); last_volt_e=val;  volt_v(screen_number, val, 1, 0, 1+11 * 8, "vEX%s", 5, 1); } 
-void volt_b(uint8_t screen_number, float val) { volt_v(screen_number, last_volt_b, 0, 3*6, 1+12 * 8, "%s", 5, 1); last_volt_b=val;  volt_v(screen_number, val, 1, 0, 1+12 * 8, "BUS%s", 5, 1); } 
+void volt_i(uint8_t screen_number, float val) { if( last_volt_i != val ) { volt_v(screen_number, last_volt_i, 0, 3*6, 1+10 * 8, "%s", 5, 1); last_volt_i=val;  volt_v(screen_number, val, 1, 0, 1+10 * 8, "vIN%s", 5, 1); }} 
+void volt_e(uint8_t screen_number, float val) { if( last_volt_e != val ) { volt_v(screen_number, last_volt_e, 0, 3*6, 1+11 * 8, "%s", 7, 3); last_volt_e=val;  volt_v(screen_number, val, 1, 0, 1+11 * 8, "vEX%s", 5, 1); }} 
+void volt_b(uint8_t screen_number, float val) { if( last_volt_b != val ) { volt_v(screen_number, last_volt_b, 0, 3*6, 1+12 * 8, "%s", 5, 1); last_volt_b=val;  volt_v(screen_number, val, 1, 0, 1+12 * 8, "BUS%s", 5, 1); }} 
 
-void pc_t(uint8_t screen_number, int val) { percent(screen_number, last_pc_t, 0, (11+3)*6, 1+11 * 8, "%d"); last_pc_t=val; percent(screen_number, val, 1, (11)*6, 1+11 * 8, "Th %d %%"); }
-void pc_m(uint8_t screen_number, int val) { percent(screen_number, last_pc_m, 0, (11+3)*6, 1+12 * 8, "%d"); last_pc_m=val; percent(screen_number, val, 1, (11)*6, 1+12 * 8, "Mt %d %%"); }
-void pc_c(uint8_t screen_number, int val) { percent(screen_number, last_pc_c, 0, (11+3)*6, 1+13 * 8, "%d"); last_pc_c=val; percent(screen_number, val, 1, (11)*6, 1+13 * 8, "Cp %d %%"); }
+void pc_t(uint8_t screen_number, int val) { if( last_pc_t != val ) { percent(screen_number, last_pc_t, 0, (11+3)*6, 1+11 * 8, "%d"); last_pc_t=val; percent(screen_number, val, 1, (11)*6, 1+11 * 8, "Th %d %%"); }}
+void pc_m(uint8_t screen_number, int val) { if( last_pc_m != val ) { percent(screen_number, last_pc_m, 0, (11+3)*6, 1+12 * 8, "%d"); last_pc_m=val; percent(screen_number, val, 1, (11)*6, 1+12 * 8, "Mt %d %%"); }}
+void pc_c(uint8_t screen_number, int val) { if( last_pc_c != val ) { percent(screen_number, last_pc_c, 0, (11+3)*6, 1+13 * 8, "%d"); last_pc_c=val; percent(screen_number, val, 1, (11)*6, 1+13 * 8, "Cp %d %%"); }}
 
-void phase_a(uint8_t screen_number, int val) { percent(screen_number, last_phase_a, 0, (11+4)*6, 1+10 * 8, "%s"); last_phase_a=val; percent(screen_number, val, 1, (11)*6, 1+10 * 8, "PhA %d"); } 
+void phase_a(uint8_t screen_number, int val) { if( last_phase_a != val ) { percent(screen_number, last_phase_a, 0, (11+4)*6, 1+10 * 8, "%s"); last_phase_a=val; percent(screen_number, val, 1, (11)*6, 1+10 * 8, "PhA %d"); }} 
 
 void signal(uint8_t s,bool has_sig) {
   sel_screen(1 << s);
@@ -681,13 +700,13 @@ void loop()
 	 float batvolt=batvolti; batvolt=batvolt/10;	// 14s or 15s.  	100%=4.2v  0%=3.0v
 							// 45v .. 63v		0x251 = 59.3v
 							// 42v .. 58.8v
-   volts(0,batvolt);             
+	 volts(0,batvolt);             
 	 uint32_t batampsu=rxBuf[3]<<8+rxBuf[2];	// fix this (signed)
 	 int32_t batampsi=(int32_t)batampsu;
 	 float batamps=batampsi; batamps=batamps/10;
-   amps(0,batamps);
+	 amps(0,batamps);
 	 uint64_t rpmi=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];
-   rpm(0,rpmi);
+	 rpm(0,rpmi);
 
        } else if (hbcid==0x14A30002) {  good_can();
 	 uint32_t motortemp=rxBuf[1]<<8+rxBuf[0];	// 90c max
