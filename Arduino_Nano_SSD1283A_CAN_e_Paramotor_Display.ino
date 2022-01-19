@@ -51,7 +51,7 @@
 
 
 #include <SerialID.h>  // So we know what code and version is running inside our MCUs
-SerialIDset("\n#\tv3.4 " __FILE__ "\t" __DATE__ " " __TIME__);
+SerialIDset("\n#\tv3.5 " __FILE__ "\t" __DATE__ " " __TIME__);
 
 
 #include <mcp_can.h>
@@ -712,21 +712,29 @@ void loop()
 	 uint32_t motortemp=rxBuf[1]<<8+rxBuf[0];	// 90c max
 	 uint32_t esctemp=rxBuf[3]<<8+rxBuf[2];		// 100c max
 	 uint32_t exttemp=rxBuf[7]<<8+rxBuf[6];		// 50c max
-   temp_m(0,motortemp);
-   temp_e(0,esctemp);
-   temp_b(0,exttemp);
+	 temp_m(0,motortemp);
+	 temp_e(0,esctemp);
+	 temp_b(0,exttemp);
 	 
        } else if (hbcid==0x14A30003) { good_can();
 	 uint64_t pwmout=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];	// /1023 % ?
 	 uint64_t pwmin=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];	//
+	 pwmout/=1023;
+	 if(pwmout<101) { int p=pwmout; pc_t(0,p); }
+	 pwmin/=1023;
+	 if(pwmin<101) { int p=pwmin; pc_m(0,p); }
 	 
        } else if (hbcid==0x14A30004) { good_can();
 	 uint64_t error=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];
 	 uint64_t warning=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];
+	 diag_e(0,error);
+	 diag_w(0,warning);
 	 
        } else if (hbcid==0x14A30005) { good_can();
 	 uint64_t notice=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];
 	 uint32_t escstatus=rxBuf[7]<<8+rxBuf[6];
+	 diag_n(0,notice);
+	 diags_i(0,escstatus);
 	 
        } else if (hbcid==0x14A30006) { good_can();
 	 uint32_t batintvolti=rxBuf[1]<<8+rxBuf[0];
@@ -734,9 +742,13 @@ void loop()
 	 uint32_t extfeedvolti=rxBuf[3]<<8+rxBuf[2];
 	 float extfeedvolt=extfeedvolti; extfeedvolt/=1000;
 	 uint32_t phaseamps=rxBuf[7]<<8+rxBuf[6];
+	 volt_i(0,batintvolt);
+	 volt_e(0,extfeedvolt);
+	 phase_a(0,phaseamps);
 	 
        } else if (hbcid==0x14A30007) { good_can();
 	 uint32_t mosfettemp=rxBuf[7]<<8+rxBuf[6];
+	 temp_f(0,mosfettemp);
 	 
        }
 
