@@ -51,7 +51,7 @@
 
 
 #include <SerialID.h>  // So we know what code and version is running inside our MCUs
-SerialIDset("\n#\tv3.5 " __FILE__ "\t" __DATE__ " " __TIME__);
+SerialIDset("\n#\tv3.6 " __FILE__ "\t" __DATE__ " " __TIME__);
 
 
 #include <mcp_can.h>
@@ -66,7 +66,19 @@ uint8_t can_ok = 0;                                               // Gets set to
 // CAN RX Variables
 long unsigned int rxId;
 unsigned char len;
-unsigned char rxBuf[8];
+//unsigned char rxBuf[8];
+
+#define BufSz 8
+union Data {
+  uint8_t b[BufSz/sizeof(uint8_t)];   // 8 bytes
+  int8_t sb[BufSz/sizeof(uint8_t)];   // 8 bytes
+  uint16_t i[BufSz/sizeof(uint16_t)]; // 4
+  int16_t si[BufSz/sizeof(int16_t)];  // 4
+  uint32_t l[BufSz/sizeof(uint32_t)]; // 2
+  int32_t sl[BufSz/sizeof(int32_t)];  // 2
+  float f[BufSz/sizeof(float)];
+} rxBuf;
+
 
 // Serial Output String Buffer
 char msgString[128];
@@ -79,10 +91,10 @@ long last_watts=0;
 int last_soc=0;
 int last_rpm=0;
 int s_guess=8;			// Guess at startup if we probably have 14S or 15S attached.  int(volts/3.96)=S  (works upto 16s)
-int last_temp_m=0;
-int last_temp_e=0;
-int last_temp_b=0;
-int last_temp_f=0;
+uint32_t last_temp_m=0;
+uint32_t last_temp_e=0;
+uint32_t last_temp_b=0;
+uint32_t last_temp_f=0;
 long unsigned int last_diag_e=0;
 long unsigned int last_diag_w=0;
 long unsigned int last_diag_n=0;
@@ -219,7 +231,7 @@ void check_engine(uint8_t s, uint8_t err) { //s is screen_number, err=0 means no
 
 // Function to display the battery VOLTS
 void volts(uint8_t screen_number, float val) { 
-  if((s_guess==8)&&(val<75))s_guess=int(val/3.96); // 14S or 15S
+  if((s_guess==8)&&(val<75)) {s_guess=int(val/3.96); s_guess=15;} // 14S or 15S
   if(last_volts != val) { // Skip re-drawing anything that hasn't changed
     sel_screen(1 << screen_number);
     volts2(screen_number, last_volts, 0);   // un-draw old
@@ -382,7 +394,7 @@ void socBar(uint8_t s,int percent) {
 
 
 // Function to display pretty temperature data
-void tempC(uint8_t s,int val, uint8_t draw, int x_offset, int y_offset, char *label, int orange, int red) {
+void tempC(uint8_t s,uint32_t val, uint8_t draw, int x_offset, int y_offset, char *label, uint32_t orange, uint32_t red) {
   sel_screen(1 << s);
   scrn[s].Set_Text_Back_colour(BLACK);
   if(!draw) scrn[s].Set_Text_colour(BLACK);
@@ -395,7 +407,7 @@ void tempC(uint8_t s,int val, uint8_t draw, int x_offset, int y_offset, char *la
   #define TEMP_SIZE 2  // 4 * 6 = 24px wide, 4 * 8 = 32px high
   scrn[s].Set_Text_Size( TEMP_SIZE );  
   
-  sprintf(msgString, "%3d", val);
+  sprintf(msgString, "%3lu", val);
  
   scrn[s].Print_String(msgString, x_offset,         y_offset);
   scrn[s].Set_Text_Size( 1 );  
@@ -405,10 +417,10 @@ void tempC(uint8_t s,int val, uint8_t draw, int x_offset, int y_offset, char *la
 } // tempC
 
 
-void temp_m(uint8_t screen_number, int val) { if( last_temp_m != val ) { tempC(screen_number, last_temp_m, 0, 0,       4*8, "",  80,  90); last_temp_m=val; tempC(screen_number, val, 1, 0,       4*8, " Motor",  80,  90); }}
-void temp_e(uint8_t screen_number, int val) { if( last_temp_e != val ) { tempC(screen_number, last_temp_e, 0, 4*2*6+4, 4*8, "",  90, 100); last_temp_e=val; tempC(screen_number, val, 1, 4*2*6+4, 4*8, " ESC",    90, 100); }}
-void temp_b(uint8_t screen_number, int val) { if( last_temp_b != val ) { tempC(screen_number, last_temp_b, 0, 0,       7*8, "",  45,  50); last_temp_b=val; tempC(screen_number, val, 1, 0,       7*8, "Battery", 45,  50); }}
-void temp_f(uint8_t screen_number, int val) { if( last_temp_f != val ) { tempC(screen_number, last_temp_f, 0, 4*2*6+4, 7*8, "", 110, 120); last_temp_f=val; tempC(screen_number, val, 1, 4*2*6+4, 7*8, " FET",   110, 120); }}
+void temp_m(uint8_t screen_number, uint32_t val) { if( last_temp_m != val ) { tempC(screen_number, last_temp_m, 0, 0,       4*8, (char*)"",  80,  90); last_temp_m=val; tempC(screen_number, val, 1, 0,       4*8, (char*)" Motor",  80,  90); }}
+void temp_e(uint8_t screen_number, uint32_t val) { if( last_temp_e != val ) { tempC(screen_number, last_temp_e, 0, 4*2*6+4, 4*8, (char*)"",  90, 100); last_temp_e=val; tempC(screen_number, val, 1, 4*2*6+4, 4*8, (char*)" ESC",    90, 100); }}
+void temp_b(uint8_t screen_number, uint32_t val) { if( last_temp_b != val ) { tempC(screen_number, last_temp_b, 0, 0,       7*8, (char*)"",  45,  50); last_temp_b=val; tempC(screen_number, val, 1, 0,       7*8, (char*)"Battery", 45,  50); }}
+void temp_f(uint8_t screen_number, uint32_t val) { if( last_temp_f != val ) { tempC(screen_number, last_temp_f, 0, 4*2*6+4, 7*8, (char*)"", 110, 120); last_temp_f=val; tempC(screen_number, val, 1, 4*2*6+4, 7*8, (char*)" FET",   110, 120); }}
 
 
 // Function to display Diagnostic bit string
@@ -468,21 +480,21 @@ void percent(uint8_t s, int val, uint8_t draw, int x_offset, int y_offset, char 
 
 
 
-void diag_e(uint8_t screen_number,  unsigned long int val) { if( last_diag_e != val ) { diag(screen_number,  last_diag_e,  0, 0,    13*8+3, "E:",1);   last_diag_e=val;  diag(screen_number,  val, 1, 0,    13*8+3, "E:",1); }}
-void diag_w(uint8_t screen_number,  unsigned long int val) { if( last_diag_w != val ) { diag(screen_number,  last_diag_w,  0, 0,    14*8+3, "W:",2);   last_diag_w=val;  diag(screen_number,  val, 1, 0,    14*8+3, "W:",2); }}
-void diag_n(uint8_t screen_number,  unsigned long int val) { if( last_diag_n != val ) { diag(screen_number,  last_diag_n,  0, 0,    15*8+3, "N:",3);   last_diag_n=val;  diag(screen_number,  val, 1, 0,    15*8+3, "N:",3); }}
-void diags_r(uint8_t screen_number,      unsigned int val) { if( last_diags_r != val ) { diags(screen_number, last_diags_r, 0, 11*6, 14*8+3, "rsv:",4); last_diags_r=val; diags(screen_number, val, 1, 11*6, 14*8+3, "rsv:",4); }}
-void diags_i(uint8_t screen_number,      unsigned int val) { if( last_diags_i != val ) { diags(screen_number, last_diags_i, 0, 11*6, 15*8+3, "Int:",5); last_diags_i=val; diags(screen_number, val, 1, 11*6, 15*8+3, "Int:",5); }}
+void diag_e(uint8_t screen_number,  unsigned long int val) { if( last_diag_e != val ) { diag(screen_number,  last_diag_e,  0, 0,    13*8+3, (char*)"E:",1);   last_diag_e=val;  diag(screen_number,  val, 1, 0,    13*8+3, (char*)"E:",1); }}
+void diag_w(uint8_t screen_number,  unsigned long int val) { if( last_diag_w != val ) { diag(screen_number,  last_diag_w,  0, 0,    14*8+3, (char*)"W:",2);   last_diag_w=val;  diag(screen_number,  val, 1, 0,    14*8+3, (char*)"W:",2); }}
+void diag_n(uint8_t screen_number,  unsigned long int val) { if( last_diag_n != val ) { diag(screen_number,  last_diag_n,  0, 0,    15*8+3, (char*)"N:",3);   last_diag_n=val;  diag(screen_number,  val, 1, 0,    15*8+3, (char*)"N:",3); }}
+void diags_r(uint8_t screen_number,      unsigned int val) { if( last_diags_r != val ) { diags(screen_number, last_diags_r, 0, 11*6, 14*8+3, (char*)"rsv:",4); last_diags_r=val; diags(screen_number, val, 1, 11*6, 14*8+3, (char*)"rsv:",4); }}
+void diags_i(uint8_t screen_number,      unsigned int val) { if( last_diags_i != val ) { diags(screen_number, last_diags_i, 0, 11*6, 15*8+3, (char*)"Int:",5); last_diags_i=val; diags(screen_number, val, 1, 11*6, 15*8+3, (char*)"Int:",5); }}
 
-void volt_i(uint8_t screen_number, float val) { if( last_volt_i != val ) { volt_v(screen_number, last_volt_i, 0, 3*6, 1+10 * 8, "%s", 5, 1); last_volt_i=val;  volt_v(screen_number, val, 1, 0, 1+10 * 8, "vIN%s", 5, 1); }} 
-void volt_e(uint8_t screen_number, float val) { if( last_volt_e != val ) { volt_v(screen_number, last_volt_e, 0, 3*6, 1+11 * 8, "%s", 7, 3); last_volt_e=val;  volt_v(screen_number, val, 1, 0, 1+11 * 8, "vEX%s", 5, 1); }} 
-void volt_b(uint8_t screen_number, float val) { if( last_volt_b != val ) { volt_v(screen_number, last_volt_b, 0, 3*6, 1+12 * 8, "%s", 5, 1); last_volt_b=val;  volt_v(screen_number, val, 1, 0, 1+12 * 8, "BUS%s", 5, 1); }} 
+void volt_i(uint8_t screen_number, float val) { if( last_volt_i != val ) { volt_v(screen_number, last_volt_i, 0, 3*6, 1+10 * 8, (char*)"%s", 5, 1); last_volt_i=val;  volt_v(screen_number, val, 1, 0, 1+10 * 8, (char*)"vIN%s", 5, 1); }} 
+void volt_e(uint8_t screen_number, float val) { if( last_volt_e != val ) { volt_v(screen_number, last_volt_e, 0, 3*6, 1+11 * 8, (char*)"%s", 7, 3); last_volt_e=val;  volt_v(screen_number, val, 1, 0, 1+11 * 8, (char*)"vEX%s", 5, 1); }} 
+void volt_b(uint8_t screen_number, float val) { if( last_volt_b != val ) { volt_v(screen_number, last_volt_b, 0, 3*6, 1+12 * 8, (char*)"%s", 5, 1); last_volt_b=val;  volt_v(screen_number, val, 1, 0, 1+12 * 8, (char*)"BUS%s", 5, 1); }} 
 
-void pc_t(uint8_t screen_number, int val) { if( last_pc_t != val ) { percent(screen_number, last_pc_t, 0, (11+3)*6, 1+11 * 8, "%d"); last_pc_t=val; percent(screen_number, val, 1, (11)*6, 1+11 * 8, "Th %d %%"); }}
-void pc_m(uint8_t screen_number, int val) { if( last_pc_m != val ) { percent(screen_number, last_pc_m, 0, (11+3)*6, 1+12 * 8, "%d"); last_pc_m=val; percent(screen_number, val, 1, (11)*6, 1+12 * 8, "Mt %d %%"); }}
-void pc_c(uint8_t screen_number, int val) { if( last_pc_c != val ) { percent(screen_number, last_pc_c, 0, (11+3)*6, 1+13 * 8, "%d"); last_pc_c=val; percent(screen_number, val, 1, (11)*6, 1+13 * 8, "Cp %d %%"); }}
+void pc_t(uint8_t screen_number, int val) { if( last_pc_t != val ) { percent(screen_number, last_pc_t, 0, (11+3)*6, 1+11 * 8, (char*)"%d"); last_pc_t=val; percent(screen_number, val, 1, (11)*6, 1+11 * 8, (char*)"Th %d %%"); }}
+void pc_m(uint8_t screen_number, int val) { if( last_pc_m != val ) { percent(screen_number, last_pc_m, 0, (11+3)*6, 1+12 * 8, (char*)"%d"); last_pc_m=val; percent(screen_number, val, 1, (11)*6, 1+12 * 8, (char*)"Mt %d %%"); }}
+void pc_c(uint8_t screen_number, int val) { if( last_pc_c != val ) { percent(screen_number, last_pc_c, 0, (11+3)*6, 1+13 * 8, (char*)"%d"); last_pc_c=val; percent(screen_number, val, 1, (11)*6, 1+13 * 8, (char*)"Cp %d %%"); }}
 
-void phase_a(uint8_t screen_number, int val) { if( last_phase_a != val ) { percent(screen_number, last_phase_a, 0, (11+4)*6, 1+10 * 8, "%s"); last_phase_a=val; percent(screen_number, val, 1, (11)*6, 1+10 * 8, "PhA %d"); }} 
+void phase_a(uint8_t screen_number, int val) { if( last_phase_a != val ) { percent(screen_number, last_phase_a, 0, (11+4)*6, 1+10 * 8, (char*)"%s"); last_phase_a=val; percent(screen_number, val, 1, (11)*6, 1+10 * 8, (char*)"PhA %d"); }} 
 
 void signal(uint8_t s,bool has_sig) {
   sel_screen(1 << s);
@@ -688,66 +700,79 @@ void loop()
 
 
   if(!digitalRead(CAN0_INT))  {                        // If CAN0_INT pin is low, read receive buffer
-    CAN0.readMsgBuf(&rxId, &len, rxBuf);              // Read data: len = data length, buf = data byte(s)
+    CAN0.readMsgBuf(&rxId, &len, rxBuf.b);              // Read data: len = data length, buf = data byte(s)
 
     if ((rxId>0)||(len>0)) { // we were getting spurious zeros too much...
       if(can_ok<2) { can_ok=2; signal(0,true); }
 
      if((rxId & 0x80000000) == 0x80000000) {            // HBCi used Extended IDs
        unsigned long hbcid=rxId & 0x1FFFFFFF;
-       if	 (hbcid==0x14A30001) { good_can();
-	 uint32_t batvolti=rxBuf[1]<<8+rxBuf[0];
-	 float batvolt=batvolti; batvolt=batvolt/10;	// 14s or 15s.  	100%=4.2v  0%=3.0v
-							// 45v .. 63v		0x251 = 59.3v
-							// 42v .. 58.8v
-	 volts(0,batvolt);             
-	 uint32_t batampsu=rxBuf[3]<<8+rxBuf[2];	// fix this (signed)
-	 int32_t batampsi=(int32_t)batampsu;
-	 float batamps=batampsi; batamps=batamps/10;
-	 amps(0,batamps);
-	 uint64_t rpmi=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];
-	 rpm(0,rpmi);
 
-       } else if (hbcid==0x14A30002) {  good_can();
-	 uint32_t motortemp=rxBuf[1]<<8+rxBuf[0];	// 90c max
-	 uint32_t esctemp=rxBuf[3]<<8+rxBuf[2];		// 100c max
-	 uint32_t exttemp=rxBuf[7]<<8+rxBuf[6];		// 50c max
-	 temp_m(0,motortemp);
-	 temp_e(0,esctemp);
-	 temp_b(0,exttemp);
-	 
+       
+       if	 (hbcid==0x14A30001) { good_can();
+	 //uint32_t batvolti=rxBuf[1];batvolti*=256;batvolti+=rxBuf[0]; // was 1 and 0
+	 //float batvolt=float(batvolti); batvolt=batvolt/10.0;	// 14s or 15s.  	100%=4.2v  0%=3.0v
+	 float batvolt=float(rxBuf.i[0]); batvolt=batvolt/10.0;	// 14s or 15s.  	100%=4.2v  0%=3.0v
+							// 45v .. 63v		0x251 = 59.3v
+							// 42v .. 58.8v      peter: 3v=0
+	 if(rxBuf.si[0]!=0) volt_i(0,batvolt);             
+	 //uint32_t batampsu=rxBuf[3];batampsu*=256;batampsu+=rxBuf[2];	// fix this (signed)
+	 //int32_t batampsi=(int32_t)batampsu;
+	 float batamps=float(rxBuf.si[1]); batamps=batamps/10.0;
+	 amps(0,batamps);
+	 //uint64_t rpmi=rxBuf[7];rpmi*=256;rpmi += rxBuf[6];rpmi*=256;rpmi += rxBuf[5];rpmi*=256;rpmi += rxBuf[4];
+	 rpm(0,rxBuf.l[1]);
+
+       } else if (hbcid==0x14A30002) {  good_can(); // Extended ID: 0x14A30002  DLC: 8  Data: 0x1D 0x00 0x1D 0x00 0x1E 0x00 0x00 0x00
+
+   //uint32_t motortemp=rxBuf[1]*=256+rxBuf[0]; // 90c max
+	 //uint32_t motortemp=rxBuf[1]; motortemp*=256; motortemp=+rxBuf[0];  // 90c max
+	 //uint32_t esctemp=rxBuf[3];   esctemp*=256;   esctemp+=rxBuf[2];		// 100c max
+	 //uint32_t exttemp=rxBuf[7];   exttemp*=256;   exttemp+=rxBuf[6];		// 50c max
+	 //temp_m(0,motortemp);
+	 //temp_e(0,esctemp);
+	 //temp_b(0,exttemp);
+	 temp_m(0,rxBuf.i[0]); // motortemp;
+	 temp_e(0,rxBuf.i[1]);	//esctemp
+	 temp_b(0,rxBuf.i[3]);	//exttemp
+
+   //Serial.print(motortemp); Serial.print(" <= motor temp\n");
+   
        } else if (hbcid==0x14A30003) { good_can();
-	 uint64_t pwmout=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];	// /1023 % ?
-	 uint64_t pwmin=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];	//
+	 //uint64_t pwmout=rxBuf[3];pwmout*=256; pwmout+=rxBuf[2];pwmout*=256; pwmout+=rxBuf[1];pwmout*=256; pwmout+=rxBuf[0];	// /1023 % ?
+	 //uint64_t pwmin=rxBuf[7]; pwmin*=256;  pwmin+= rxBuf[6]; pwmin*=256; pwmin+= rxBuf[5];pwmin*=256;  pwmin+= rxBuf[4];	//
+	 uint64_t pwmout=rxBuf.l[0];
+	 uint64_t pwmin=rxBuf.l[1];
 	 pwmout/=1023;
 	 if(pwmout<101) { int p=pwmout; pc_t(0,p); }
 	 pwmin/=1023;
 	 if(pwmin<101) { int p=pwmin; pc_m(0,p); }
 	 
        } else if (hbcid==0x14A30004) { good_can();
-	 uint64_t error=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];
-	 uint64_t warning=rxBuf[7]<<24 + rxBuf[6]<<16 + rxBuf[5]<<8 + rxBuf[4];
+	 uint64_t error=rxBuf.l[0];   //rxBuf[3];error*=256; error+=rxBuf[2];error*=256; error+=rxBuf[1];error*=256; error+=rxBuf[0];
+	 uint64_t warning=rxBuf.l[1]; //rxBuf[7];warning*=256;warning+=rxBuf[6];warning*=256;warning+=rxBuf[5];warning*=256;warning+=rxBuf[4];
 	 diag_e(0,error);
 	 diag_w(0,warning);
 	 
        } else if (hbcid==0x14A30005) { good_can();
-	 uint64_t notice=rxBuf[3]<<24 + rxBuf[2]<<16 + rxBuf[1]<<8 + rxBuf[0];
-	 uint32_t escstatus=rxBuf[7]<<8+rxBuf[6];
+	 uint64_t notice=rxBuf.l[0]; // rxBuf[3];notice*=256;notice+=rxBuf[2];notice*=256;notice+=rxBuf[1];notice*=256;notice+=rxBuf[0];
+	 uint32_t escstatus=rxBuf.i[3]; //rxBuf[7];escstatus*=256;escstatus+=rxBuf[6];
 	 diag_n(0,notice);
 	 diags_i(0,escstatus);
 	 
        } else if (hbcid==0x14A30006) { good_can();
-	 uint32_t batintvolti=rxBuf[1]<<8+rxBuf[0];
-	 float batintvolt=batintvolti; batintvolt/=10;
-	 uint32_t extfeedvolti=rxBuf[3]<<8+rxBuf[2];
-	 float extfeedvolt=extfeedvolti; extfeedvolt/=1000;
-	 uint32_t phaseamps=rxBuf[7]<<8+rxBuf[6];
-	 volt_i(0,batintvolt);
+	 uint32_t batintvolti=rxBuf.i[0]; //rxBuf[1];batintvolti*=256;batintvolti+=rxBuf[0];
+	 float batintvolt=float(batintvolti); batintvolt/=10.0;
+ // Serial.print(batintvolti); Serial.print(" "); Serial.print(batintvolt); Serial.print(" <==v\n");
+	 uint32_t extfeedvolti=rxBuf.i[1]; //rxBuf[3];extfeedvolti*=256;extfeedvolti+=rxBuf[2];
+	 float extfeedvolt=float(extfeedvolti); extfeedvolt/=1000.0;
+	 uint32_t phaseamps=rxBuf.i[3]; // rxBuf[7];phaseamps*=256;phaseamps+=rxBuf[6];
+	 volts(0,batintvolt);
 	 volt_e(0,extfeedvolt);
 	 phase_a(0,phaseamps);
 	 
        } else if (hbcid==0x14A30007) { good_can();
-	 uint32_t mosfettemp=rxBuf[7]<<8+rxBuf[6];
+	 uint32_t mosfettemp=rxBuf.b[7];// ;mosfettemp*=256;mosfettemp+=rxBuf[6];
 	 temp_f(0,mosfettemp);
 	 
        }
@@ -759,7 +784,7 @@ void loop()
        sprintf(buf,"EX:%.8lX L:%1d d:", (rxId & 0x1FFFFFFF), len);
      } else {
        sprintf(msgString, "Standard ID: 0x%.3lX       DLC: %1d  Data:", rxId, len);
-       sprintf(buf,"ID:%.3lX L:%ld ", rxId, len);
+       sprintf(buf,"ID:%.3lX L:%d ", rxId, len);
      }
    
      Serial.print(msgString);
@@ -771,13 +796,13 @@ void loop()
        if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"RMT"); // buf is 50 bytes
      } else {
        for(byte i = 0; i<len; i++){
-         sprintf(msgString, " 0x%.2X", rxBuf[i]);				// 0        1         2         3         4         5
+         sprintf(msgString, " 0x%.2X", rxBuf.b[i]);				// 0        1         2         3         4         5
          Serial.print(msgString);						// 12345678901234567890123456789012345678901234567890
-         if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"%.2X ", rxBuf[i]);	// EX:12345678 L:123 d:12 34 56 78 90 12 34 56.
+         if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"%.2X ", rxBuf.b[i]);	// EX:12345678 L:123 d:12 34 56 78 90 12 34 56.
        }
      }
 
-
+#ifdef SHOW_DEBUG_ON_LCD
  
      // Send data to LCD
      #define CAN_SCRN 0
@@ -796,6 +821,8 @@ void loop()
        
        X=X+6;  if(X>=126) { X=0; Y=Y+8; if(Y>=127)Y=0;}  // advance
      }	  
+
+#endif
 
      Serial.println();
 
