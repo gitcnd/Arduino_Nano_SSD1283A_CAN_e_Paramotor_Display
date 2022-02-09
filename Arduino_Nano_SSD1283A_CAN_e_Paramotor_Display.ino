@@ -51,7 +51,7 @@
 
 
 #include <SerialID.h>  // So we know what code and version is running inside our MCUs
-SerialIDset("\n#\tv3.6 " __FILE__ "\t" __DATE__ " " __TIME__);
+SerialIDset("\n#\tv3.7 " __FILE__ "\t" __DATE__ " " __TIME__);
 
 
 #include <mcp_can.h>
@@ -62,6 +62,7 @@ unsigned long prevTX = 0;                                        // Variable to 
 const unsigned int invlTX = 1000;                                // One second interval constant
 byte data[] = {0xAA, 0x55, 0x01, 0x10, 0xFF, 0x12, 0x34, 0x56};  // Generic CAN data to send
 uint8_t can_ok = 0;                                               // Gets set to 1 if the CAN initialized OK, and 2 when we get CAN data, and 3 when we get valid CAN data
+boolean flymode=true;						// Show just the important data
 
 // CAN RX Variables
 long unsigned int rxId;
@@ -230,6 +231,42 @@ void check_engine(uint8_t s, uint8_t err) { //s is screen_number, err=0 means no
 
 
 // Function to display the battery VOLTS
+void Fvolts(uint8_t screen_number, float val) { 
+  if((s_guess==8)&&(val<75)) {s_guess=int(val/3.96); s_guess=15;} // 14S or 15S
+  if(last_volts != val) { // Skip re-drawing anything that hasn't changed
+    sel_screen(1 << screen_number);
+    Fvolts2(screen_number, last_volts, 0);   // un-draw old
+    Fvolts2(screen_number, val, 1);         // draw new
+    last_volts=val;                        // Remember what we just drew, so we can un-draw it later
+  }
+} // Fvolts
+
+void Fvolts2(uint8_t s,float val, uint8_t draw) {
+  scrn[s].Set_Text_Back_colour(BLACK);
+  if(!draw) scrn[s].Set_Text_colour(BLACK);
+  //else scrn[s].Set_Text_colour(0,192,192); // teal
+  else scrn[s].Set_Text_colour(WHITE);
+
+  //#define AMP_SIZE 4  // 4 * 6 = 24px wide, 4 * 8 = 32px high
+  //#define AMP_SIZE 3  // 3 * 3 = 18px wide, 3 * 8 = 24px high
+  scrn[s].Set_Text_Size( 7 );  
+  //scrn[s].Print_Number_Int(val, 130/2 - (3 * 6 * AMP_SIZE)/2 , 1, 0, ' ',10); // "center" for 3 digits   ( num,  x, y, length, filler, base)
+
+  dtostrf(val*10, 3, 0, msgString); // 4 is mininum width, 2 is precision
+  // sprintf(msgString, "%2.1f", val); // arduino does not have %f
+  //scrn[s].Print_Number_Int(val, 0,0);
+  scrn[s].Print_String(msgString, 0,0);
+
+  //scrn[s].Fill_Rect( 7*6*2-5, 7*8-11,  7*6*2, 7*8-3, WHITE); // fake the decimal point
+  //                   X        Y      W  H
+  scrn[s].Fill_Rect( 7*6*2-5, 7*8-11,  5, 5, WHITE); // fake the decimal point
+
+  socBar(s,socv(val/s_guess));		// Show capacity remaining (these are REST numbers - not under-load ones)
+} // Fvolts2
+
+
+
+// Function to display the battery VOLTS
 void volts(uint8_t screen_number, float val) { 
   if((s_guess==8)&&(val<75)) {s_guess=int(val/3.96); s_guess=15;} // 14S or 15S
   if(last_volts != val) { // Skip re-drawing anything that hasn't changed
@@ -377,6 +414,7 @@ void soc2(uint8_t s,int val, uint8_t draw) {
 void socBar(uint8_t s,int percent) {
   int spc=130 * percent; spc/=100; // Scale the percentage to screen pixels.
   if(spc>129)spc=130; // ignore 101%+
+  //                              X  Y      W       H
   if(spc<130) scrn[s].Fill_Rect( 121,0,       129, 129-spc, BLACK); // Black top (overwrite prior green)
   if(spc>0){
     if(spc>49) scrn[s].Fill_Rect( 121,130-spc, 129,129,      GREEN); // Green bottom
@@ -417,11 +455,37 @@ void tempC(uint8_t s,uint32_t val, uint8_t draw, int x_offset, int y_offset, cha
 } // tempC
 
 
+// Function to display pretty temperature data
+void FtempC(uint8_t s,uint8_t sz, uint32_t val, uint8_t draw, int x_offset, int y_offset, char *label, uint32_t orange, uint32_t red) {
+  sel_screen(1 << s);
+  scrn[s].Set_Text_Back_colour(BLACK);
+  if(!draw) scrn[s].Set_Text_colour(BLACK);
+  else { 
+    if(val >= red) scrn[s].Set_Text_colour(RED);
+    else if(val >= orange) scrn[s].Set_Text_colour(YELLOW);
+    else scrn[s].Set_Text_colour(GREEN);
+  }
+
+  scrn[s].Set_Text_Size( sz );  
+  
+  sprintf(msgString, "%1s %3lu", label, val);
+ 
+  scrn[s].Print_String(msgString, x_offset,         y_offset);
+  scrn[s].Set_Text_Size( 1 );  
+  scrn[s].Print_String(degsym,    x_offset + 5*sz*6, y_offset);
+  // scrn[s].Print_String(label,    x_offset + sz*6, y_offset+sz*8);
+  
+} // FtempC
+
+
 void temp_m(uint8_t screen_number, uint32_t val) { if( last_temp_m != val ) { tempC(screen_number, last_temp_m, 0, 0,       4*8, (char*)"",  80,  90); last_temp_m=val; tempC(screen_number, val, 1, 0,       4*8, (char*)" Motor",  80,  90); }}
 void temp_e(uint8_t screen_number, uint32_t val) { if( last_temp_e != val ) { tempC(screen_number, last_temp_e, 0, 4*2*6+4, 4*8, (char*)"",  90, 100); last_temp_e=val; tempC(screen_number, val, 1, 4*2*6+4, 4*8, (char*)" ESC",    90, 100); }}
 void temp_b(uint8_t screen_number, uint32_t val) { if( last_temp_b != val ) { tempC(screen_number, last_temp_b, 0, 0,       7*8, (char*)"",  45,  50); last_temp_b=val; tempC(screen_number, val, 1, 0,       7*8, (char*)"Battery", 45,  50); }}
 void temp_f(uint8_t screen_number, uint32_t val) { if( last_temp_f != val ) { tempC(screen_number, last_temp_f, 0, 4*2*6+4, 7*8, (char*)"", 110, 120); last_temp_f=val; tempC(screen_number, val, 1, 4*2*6+4, 7*8, (char*)" FET",   110, 120); }}
-
+//												    sz   val       drw  x       y    lbal      orange red
+void Ftemp_m(uint8_t screen_number, uint32_t val) { if( last_temp_m != val ) { FtempC(screen_number, 3,last_temp_m, 0, 0,  7*8+0*3*9-2, (char*)"",  80,  90); last_temp_m=val; FtempC(screen_number, 3,val, 1, 0,  7*8+0*3*9-2, (char*)"M",  80,  90); }}
+void Ftemp_b(uint8_t screen_number, uint32_t val) { if( last_temp_b != val ) { FtempC(screen_number, 3,last_temp_b, 0, 0,  7*8+1*3*9-2, (char*)"",  45,  50); last_temp_b=val; FtempC(screen_number, 3,val, 1, 0,  7*8+1*3*9-2, (char*)"B",  45,  50); }}
+void Ftemp_e(uint8_t screen_number, uint32_t val) { if( last_temp_e != val ) { FtempC(screen_number, 3,last_temp_e, 0, 0,  7*8+2*3*9-2, (char*)"",  90, 100); last_temp_e=val; FtempC(screen_number, 3,val, 1, 0,  7*8+2*3*9-2, (char*)"E",  90, 100); }}
 
 // Function to display Diagnostic bit string
 void diag(uint8_t s,unsigned long int val, uint8_t draw, int x_offset, int y_offset, char *label, uint8_t colr) {
@@ -502,11 +566,12 @@ void signal(uint8_t s,bool has_sig) {
   if(has_sig) {//	  1234567890123 = 13 = 78px wide
     scrn[s].Set_Text_Back_colour(BLACK);
     scrn[s].Set_Text_colour(RED);
-    scrn[s].Print_String(" No Valid CAN Signal ", 2, 122);
+    scrn[s].Print_String(" No Valid CAN Signal ", 2, 24);
   } else {
     scrn[s].Set_Text_Back_colour(RED);
     scrn[s].Set_Text_colour(WHITE);
-    scrn[s].Print_String(" No CAN Signal ", 20, 122); // 57 was middle of screen
+    //scrn[s].Print_String(" No CAN Signal ", 20, 122); // 57 was middle of screen
+    scrn[s].Print_String(" No CAN Signal ", 20, 24); // 57 was middle of screen
   }
 }
 
@@ -530,30 +595,36 @@ void show_font(uint8_t s) {
 
 // Light up all the instruments like analogue cars do, to check all guages are working...
 void instrument_check() {
-  volts(0,88.8);
-  amps(0,-88.8);
-  watts(0,88888);
-  rpm(0,8888);
-  temp_m(0,888);	// Motor
-  temp_e(0,888);	// ESC
-  temp_b(0,888);	// Battery
-  temp_f(0,888);	// FET
+  if(flymode) {
+    Fvolts(0,88.8);
+    Ftemp_m(0,888);	// Motor
+    Ftemp_b(0,888);	// Battery
+    Ftemp_e(0,888);	// ESC
+  } else {
+    volts(0,88.8);
+    amps(0,-88.8);
+    watts(0,88888);
+    rpm(0,8888);
+    temp_m(0,888);	// Motor
+    temp_e(0,888);	// ESC
+    temp_b(0,888);	// Battery
+    temp_f(0,888);	// FET
 
-  diag_e(0,0x88888888);	// Error code
-  diag_w(0,0x88888888);	// Warning code
-  diag_n(0,0x88888888);	// Notice code
-  diags_r(0,0x8888);	// reserved code
-  diags_i(0,0x8888);	// ESC Init code
+    diag_e(0,0x88888888);	// Error code
+    diag_w(0,0x88888888);	// Warning code
+    diag_n(0,0x88888888);	// Notice code
+    diags_r(0,0x8888);	// reserved code
+    diags_i(0,0x8888);	// ESC Init code
 
-  volt_i(0,88.8);	// vIN	y=10
-  volt_e(0,88.888);	// vEX	y=11
-  volt_b(0,88.8);	// BUS	y=12
+    volt_i(0,88.8);	// vIN	y=10
+    volt_e(0,88.888);	// vEX	y=11
+    volt_b(0,88.8);	// BUS	y=12
 
-  phase_a(0,888);	// 		y=10 x=11*6
-  pc_t(0,100);		// Throttle %	y=11
-  pc_m(0,100);		// Motor PWM %	y=12
-  pc_c(0,socv(3.8));		// Battrey Capacity % 	y=13
-
+    phase_a(0,888);	// 		y=10 x=11*6
+    pc_t(0,100);		// Throttle %	y=11
+    pc_m(0,100);		// Motor PWM %	y=12
+    pc_c(0,socv(3.8));		// Battrey Capacity % 	y=13
+  }
 
 
   //check_engine(0,1);
@@ -719,9 +790,9 @@ void loop()
 	 //uint32_t batampsu=rxBuf[3];batampsu*=256;batampsu+=rxBuf[2];	// fix this (signed)
 	 //int32_t batampsi=(int32_t)batampsu;
 	 float batamps=float(rxBuf.si[1]); batamps=batamps/10.0;
-	 amps(0,batamps);
+	 if(!flymode) amps(0,batamps);
 	 //uint64_t rpmi=rxBuf[7];rpmi*=256;rpmi += rxBuf[6];rpmi*=256;rpmi += rxBuf[5];rpmi*=256;rpmi += rxBuf[4];
-	 rpm(0,rxBuf.l[1]);
+	 if(!flymode) rpm(0,rxBuf.l[1]);
 
        } else if (hbcid==0x14A30002) {  good_can(); // Extended ID: 0x14A30002  DLC: 8  Data: 0x1D 0x00 0x1D 0x00 0x1E 0x00 0x00 0x00
 
@@ -732,9 +803,9 @@ void loop()
 	 //temp_m(0,motortemp);
 	 //temp_e(0,esctemp);
 	 //temp_b(0,exttemp);
-	 temp_m(0,rxBuf.i[0]); // motortemp;
-	 temp_e(0,rxBuf.i[1]);	//esctemp
-	 temp_b(0,rxBuf.i[3]);	//exttemp
+	 if(flymode) Ftemp_m(0,rxBuf.i[0]); else temp_m(0,rxBuf.i[0]);  // motortemp;
+	 if(flymode) Ftemp_e(0,rxBuf.i[1]); else temp_e(0,rxBuf.i[1]);	//esctemp
+	 if(flymode) Ftemp_b(0,rxBuf.i[3]); else temp_b(0,rxBuf.i[3]);	//exttemp
 
    //Serial.print(motortemp); Serial.print(" <= motor temp\n");
    
@@ -751,14 +822,14 @@ void loop()
        } else if (hbcid==0x14A30004) { good_can();
 	 uint64_t error=rxBuf.l[0];   //rxBuf[3];error*=256; error+=rxBuf[2];error*=256; error+=rxBuf[1];error*=256; error+=rxBuf[0];
 	 uint64_t warning=rxBuf.l[1]; //rxBuf[7];warning*=256;warning+=rxBuf[6];warning*=256;warning+=rxBuf[5];warning*=256;warning+=rxBuf[4];
-	 diag_e(0,error);
-	 diag_w(0,warning);
+	 if(!flymode) diag_e(0,error);
+	 if(!flymode) diag_w(0,warning);
 	 
        } else if (hbcid==0x14A30005) { good_can();
 	 uint64_t notice=rxBuf.l[0]; // rxBuf[3];notice*=256;notice+=rxBuf[2];notice*=256;notice+=rxBuf[1];notice*=256;notice+=rxBuf[0];
 	 uint32_t escstatus=rxBuf.i[3]; //rxBuf[7];escstatus*=256;escstatus+=rxBuf[6];
-	 diag_n(0,notice);
-	 diags_i(0,escstatus);
+	 if(!flymode) diag_n(0,notice);
+	 if(!flymode) diags_i(0,escstatus);
 	 
        } else if (hbcid==0x14A30006) { good_can();
 	 uint32_t batintvolti=rxBuf.i[0]; //rxBuf[1];batintvolti*=256;batintvolti+=rxBuf[0];
@@ -767,38 +838,41 @@ void loop()
 	 uint32_t extfeedvolti=rxBuf.i[1]; //rxBuf[3];extfeedvolti*=256;extfeedvolti+=rxBuf[2];
 	 float extfeedvolt=float(extfeedvolti); extfeedvolt/=1000.0;
 	 uint32_t phaseamps=rxBuf.i[3]; // rxBuf[7];phaseamps*=256;phaseamps+=rxBuf[6];
-	 volts(0,batintvolt);
-	 volt_e(0,extfeedvolt);
-	 phase_a(0,phaseamps);
+	 if(flymode) Fvolts(0,batintvolt);
+	 if(!flymode) volts(0,batintvolt);
+	 if(!flymode) volt_e(0,extfeedvolt);
+	 if(!flymode) phase_a(0,phaseamps);
 	 
        } else if (hbcid==0x14A30007) { good_can();
 	 uint32_t mosfettemp=rxBuf.b[7];// ;mosfettemp*=256;mosfettemp+=rxBuf[6];
-	 temp_f(0,mosfettemp);
+	 if(!flymode) temp_f(0,mosfettemp);
 	 
        }
 
      }
 
-     if((rxId & 0x80000000) == 0x80000000) {            // Determine if ID is standard (11 bits) or extended (29 bits)
-       sprintf(msgString, "Extended ID: 0x%.8lX  DLC: %1d  Data:", (rxId & 0x1FFFFFFF), len);
-       sprintf(buf,"EX:%.8lX L:%1d d:", (rxId & 0x1FFFFFFF), len);
-     } else {
-       sprintf(msgString, "Standard ID: 0x%.3lX       DLC: %1d  Data:", rxId, len);
-       sprintf(buf,"ID:%.3lX L:%d ", rxId, len);
-     }
+     if(!flymode) {
+       if((rxId & 0x80000000) == 0x80000000) {            // Determine if ID is standard (11 bits) or extended (29 bits)
+         sprintf(msgString, "Extended ID: 0x%.8lX  DLC: %1d  Data:", (rxId & 0x1FFFFFFF), len);
+         sprintf(buf,"EX:%.8lX L:%1d d:", (rxId & 0x1FFFFFFF), len);
+       } else {
+         sprintf(msgString, "Standard ID: 0x%.3lX       DLC: %1d  Data:", rxId, len);
+         sprintf(buf,"ID:%.3lX L:%d ", rxId, len);
+       }
    
-     Serial.print(msgString);
+       Serial.print(msgString);
      
    
-     if((rxId & 0x40000000) == 0x40000000){            // Determine if message is a remote request frame.
-       //sprintf(msgString, " REMOTE REQUEST FRAME");
-       Serial.print("RMT REQ");
-       if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"RMT"); // buf is 50 bytes
-     } else {
-       for(byte i = 0; i<len; i++){
-         sprintf(msgString, " 0x%.2X", rxBuf.b[i]);				// 0        1         2         3         4         5
-         Serial.print(msgString);						// 12345678901234567890123456789012345678901234567890
-         if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"%.2X ", rxBuf.b[i]);	// EX:12345678 L:123 d:12 34 56 78 90 12 34 56.
+       if((rxId & 0x40000000) == 0x40000000){            // Determine if message is a remote request frame.
+         //sprintf(msgString, " REMOTE REQUEST FRAME");
+         Serial.print("RMT REQ");
+         if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"RMT"); // buf is 50 bytes
+       } else {
+         for(byte i = 0; i<len; i++){
+           sprintf(msgString, " 0x%.2X", rxBuf.b[i]);				// 0        1         2         3         4         5
+           Serial.print(msgString);						// 12345678901234567890123456789012345678901234567890
+           if(strlen(buf)<46) sprintf(&buf[strlen(buf)],"%.2X ", rxBuf.b[i]);	// EX:12345678 L:123 d:12 34 56 78 90 12 34 56.
+         }
        }
      }
 
@@ -824,7 +898,7 @@ void loop()
 
 #endif
 
-     Serial.println();
+     if(!flymode) Serial.println();
 
    } // nothing
   
