@@ -483,9 +483,9 @@ void temp_e(uint8_t screen_number, uint32_t val) { if( last_temp_e != val ) { te
 void temp_b(uint8_t screen_number, uint32_t val) { if( last_temp_b != val ) { tempC(screen_number, last_temp_b, 0, 0,       7*8, (char*)"",  45,  50); last_temp_b=val; tempC(screen_number, val, 1, 0,       7*8, (char*)"Battery", 45,  50); }}
 void temp_f(uint8_t screen_number, uint32_t val) { if( last_temp_f != val ) { tempC(screen_number, last_temp_f, 0, 4*2*6+4, 7*8, (char*)"", 110, 120); last_temp_f=val; tempC(screen_number, val, 1, 4*2*6+4, 7*8, (char*)" FET",   110, 120); }}
 //												    sz   val       drw  x       y    lbal      orange red
-void Ftemp_m(uint8_t screen_number, uint32_t val) { if( last_temp_m != val ) { FtempC(screen_number, 3,last_temp_m, 0, 0,  7*8+0*3*9-2, (char*)"",  80,  90); last_temp_m=val; FtempC(screen_number, 3,val, 1, 0,  7*8+0*3*9-2, (char*)"M",  80,  90); }}
-void Ftemp_b(uint8_t screen_number, uint32_t val) { if( last_temp_b != val ) { FtempC(screen_number, 3,last_temp_b, 0, 0,  7*8+1*3*9-2, (char*)"",  45,  50); last_temp_b=val; FtempC(screen_number, 3,val, 1, 0,  7*8+1*3*9-2, (char*)"B",  45,  50); }}
-void Ftemp_e(uint8_t screen_number, uint32_t val) { if( last_temp_e != val ) { FtempC(screen_number, 3,last_temp_e, 0, 0,  7*8+2*3*9-2, (char*)"",  90, 100); last_temp_e=val; FtempC(screen_number, 3,val, 1, 0,  7*8+2*3*9-2, (char*)"E",  90, 100); }}
+void Ftemp_m(uint8_t screen_number, uint32_t val) { if( last_temp_m != val ) { FtempC(screen_number, 3,last_temp_m, 0, 0,  7*8+0*3*8+2, (char*)"",  80,  90); last_temp_m=val; FtempC(screen_number, 3,val, 1, 0,  7*8+0*3*8+2, (char*)"M",  80,  90); }}
+void Ftemp_b(uint8_t screen_number, uint32_t val) { if( last_temp_b != val ) { FtempC(screen_number, 3,last_temp_b, 0, 0,  7*8+1*3*8+2, (char*)"",  45,  50); last_temp_b=val; FtempC(screen_number, 3,val, 1, 0,  7*8+1*3*8+2, (char*)"B",  45,  50); }}
+void Ftemp_e(uint8_t screen_number, uint32_t val) { if( last_temp_e != val ) { FtempC(screen_number, 3,last_temp_e, 0, 0,  7*8+2*3*8+2, (char*)"",  90, 100); last_temp_e=val; FtempC(screen_number, 3,val, 1, 0,  7*8+2*3*8+2, (char*)"E",  90, 100); }}
 
 // Function to display Diagnostic bit string
 void diag(uint8_t s,unsigned long int val, uint8_t draw, int x_offset, int y_offset, char *label, uint8_t colr) {
@@ -786,7 +786,7 @@ void loop()
 	 float batvolt=float(rxBuf.i[0]); batvolt=batvolt/10.0;	// 14s or 15s.  	100%=4.2v  0%=3.0v
 							// 45v .. 63v		0x251 = 59.3v
 							// 42v .. 58.8v      peter: 3v=0
-	 if(rxBuf.si[0]!=0) volt_i(0,batvolt);             
+	 if(rxBuf.si[0]!=0){if(!flymode) volt_i(0,batvolt); }
 	 //uint32_t batampsu=rxBuf[3];batampsu*=256;batampsu+=rxBuf[2];	// fix this (signed)
 	 //int32_t batampsi=(int32_t)batampsu;
 	 float batamps=float(rxBuf.si[1]); batamps=batamps/10.0;
@@ -815,9 +815,9 @@ void loop()
 	 uint64_t pwmout=rxBuf.l[0];
 	 uint64_t pwmin=rxBuf.l[1];
 	 pwmout/=1023;
-	 if(pwmout<101) { int p=pwmout; pc_t(0,p); }
+	 if(pwmout<101) { int p=pwmout;if(!flymode) pc_t(0,p); }
 	 pwmin/=1023;
-	 if(pwmin<101) { int p=pwmin; pc_m(0,p); }
+	 if(pwmin<101) { int p=pwmin;if(!flymode) pc_m(0,p); }
 	 
        } else if (hbcid==0x14A30004) { good_can();
 	 uint64_t error=rxBuf.l[0];   //rxBuf[3];error*=256; error+=rxBuf[2];error*=256; error+=rxBuf[1];error*=256; error+=rxBuf[0];
